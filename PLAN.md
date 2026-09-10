@@ -124,6 +124,13 @@ node grab.mjs --list docs.txt --format pdf                # 批量
 
 首次使用: `node tools/ai-chrome.mjs start` 后在弹出的窗口登录飞书（一次即可）。
 
+隔离测试租户使用独立 profile 和端口，不会读取或修改日常/公司登录态：
+
+```bash
+AI_CHROME_PROFILE=~/.feishu-export-test-profile AI_CHROME_PORT=9223 node tools/ai-chrome.mjs status
+AI_CHROME_PROFILE=~/.feishu-export-test-profile AI_CHROME_PORT=9223 node grab.mjs <test-url> --format md
+```
+
 ## 目录
 
 ```

@@ -22,8 +22,8 @@ import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
-export const AI_PORT = 9222;
-export const AI_PROFILE = join(homedir(), '.ai-chrome-profile');
+export const AI_PORT = Number(process.env.AI_CHROME_PORT || 9222);
+export const AI_PROFILE = process.env.AI_CHROME_PROFILE || join(homedir(), '.ai-chrome-profile');
 export const CHROME_BIN =
   process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -39,7 +39,7 @@ export async function reachable(port = AI_PORT) {
 /** 启动 AI 实例（幂等）。返回是否为本次新启动。 */
 export async function start({ silent = false } = {}) {
   if (await reachable()) {
-    if (!silent) console.log('✓ AI Chrome 已在运行 (127.0.0.1:9222)');
+    if (!silent) console.log(`✓ AI Chrome 已在运行 (127.0.0.1:${AI_PORT})`);
     return false;
   }
   const firstRun = !existsSync(AI_PROFILE);
