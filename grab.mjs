@@ -24,6 +24,7 @@ import {
   mergeClientVarsPages,
 } from './lib/ssr.mjs';
 import { evaluateIntegrity } from './lib/integrity.mjs';
+import { collectCommentIds } from './lib/comments.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
@@ -267,7 +268,7 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
   )).json();
   if (idsResp.code !== 0) throw new Error(`commentid/all: ${idsResp.msg}`);
   const relations = idsResp.data?.commentRelations ?? {};
-  const ids = Object.keys(relations);
+  const ids = collectCommentIds(idsResp.data);
   if (!ids.length) return [];
   const form = new URLSearchParams();
   form.set('obj_type', '22');
@@ -286,8 +287,20 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
   const threads = [];
   for (const cid of ids) {
     const rel = relations[cid]?.relation ? Object.values(relations[cid].relation)[0] : null;
-    const quote = (comments[cid]?.quote || '').trim();
-    const entries = (comments[cid]?.comment_list ?? [])
+    const comment = comments[cid] ?? {};
+    const quote = (comment.quote || '').trim();
+    let position = comment.position;
+    if (typeof position === 'string' && position.trim().startsWith('{')) {
+      try { position = JSON.parse(position); } catch {}
+    }
+    const blockId = rel?.positionInfo?.blockID
+      || position?.positionInfo?.blockID
+      || position?.blockID
+      || position?.blockId
+      || position?.block_id
+      || comment.extra?.content_anchor_id
+      || null;
+    const entries = (comment.comment_list ?? [])
       .filter((c) => !c.delete_flag && (c.content || '').replace(/<at[^>]*>@[^<]+<\/at>/g, '').trim())
       .map((c, i) => ({
         name: c.name || '匿名',
@@ -295,7 +308,7 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
         content: (c.content || '').replace(/<at[^>]*>@([^<]+)<\/at>/g, '@$1').replace(/\n/g, ' '),
         isReply: i > 0 || (c.reply_id && c.reply_id !== c.comment_id),
       }));
-    if (entries.length) threads.push({ blockId: rel?.positionInfo?.blockID || null, quote, entries });
+    if (entries.length) threads.push({ blockId, quote, entries });
   }
   return threads;
 }
@@ -313,7 +326,7 @@ function applyComments(body, threads) {
     } else if (body.includes(marker)) {
       body = body.split(marker).join(ref);
     } else {
-      body += `\n\n<span id="cmt-ref-${i}"><sup>\u3010\ud83d\udcac${i + 1}\u3011</sup></span>`;
+      body += `\n\n${ref}`;
     }
   });
   const notes = threads.map((th, i) => {

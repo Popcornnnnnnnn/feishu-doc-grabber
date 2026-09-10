@@ -27,7 +27,10 @@ test('corpus manifest has unique, auditable cases without tenant URLs', () => {
     sentinels.push(...item.expect.sentinels);
 
     if (item.source && item.state !== 'generator_ready') {
-      assert.ok(existsSync(resolve(root, item.source)), `missing source for ${item.id}`);
+      assert.ok(
+        existsSync(resolve(root, item.source)) || item.generator,
+        `missing source or generator for ${item.id}`,
+      );
     }
     if (item.state === 'generator_ready') assert.ok(item.generator);
   }

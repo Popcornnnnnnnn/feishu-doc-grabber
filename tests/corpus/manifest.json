@@ -20,14 +20,17 @@
     {
       "id": "FG-02",
       "title": "Native Tables",
-      "state": "broken_remote_fixture",
-      "setup": "native_editor",
-      "foregroundRequired": true,
-      "source": "tests/source-docs/FG-02 Native Tables.md",
+      "state": "live",
+      "setup": "drive_import_docx",
+      "foregroundRequired": false,
+      "source": "tests/generated/FG-02 Native Tables.docx",
+      "generator": "tools/generate-table-fixture.py (bundled workspace Python)",
       "coverage": ["table", "empty_cells", "unicode_cells", "wide_table", "rowspan", "colspan"],
       "expect": {
         "integrity": "complete",
-        "sentinels": ["TABLE-A1-8D31", "TABLE-MERGE-C7", "TABLE-END-91AF"],
+        "minBlocks": 150,
+        "requiredBlockTypes": ["page", "table", "table_cell", "text", "heading1"],
+        "sentinels": ["TABLE-A1-8D31", "TABLE-MERGE-C7", "TABLE-END-91AF", "TABLE-DOC-END-62F1"],
         "minMarkdownBytes": 500
       }
     },
@@ -92,14 +95,22 @@
     },
     {
       "id": "FG-07",
-      "title": "Comment Threads",
-      "state": "blocked_by_native_editor",
-      "setup": "native_comments",
-      "foregroundRequired": true,
-      "coverage": ["paragraph_comment", "inline_comment", "reply_thread", "resolved_comment", "unicode_comment"],
+      "title": "Native Whole-document Comments",
+      "state": "live",
+      "setup": "drive_import_docx_then_native_whole_document_comments",
+      "foregroundRequired": false,
+      "source": "tests/generated/FG-07 Native Comments.docx",
+      "generator": "tools/generate-comment-fixture.py (bundled workspace Python)",
+      "coverage": ["whole_document_comment", "multiple_threads", "unicode_comment"],
+      "remainingGaps": ["anchored_comment", "reply_thread", "resolved_comment"],
       "expect": {
         "integrity": "complete",
-        "sentinels": ["COMMENT-ANCHOR-A3", "COMMENT-ANCHOR-B7", "COMMENT-END-E119"],
+        "sentinels": ["COMMENT-ANCHOR-A3", "COMMENT-ANCHOR-B7", "COMMENT-RESOLVED-C4", "COMMENT-END-E119"],
+        "commentSentinels": [
+          "Paragraph-level review note for COMMENT-ANCHOR-A3.",
+          "Inline token review note.",
+          "评论正文 Ω alpha"
+        ],
         "minCommentThreads": 3,
         "minMarkdownBytes": 400
       }

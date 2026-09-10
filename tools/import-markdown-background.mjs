@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer-core';
 
 const [homeArg, fileArg] = process.argv.slice(2);
 if (!homeArg || !fileArg) {
-  console.error('Usage: node tools/import-markdown-background.mjs <drive-home-url> <markdown-file>');
+  console.error('Usage: node tools/import-markdown-background.mjs <drive-home-url> <markdown-or-docx-file>');
   process.exit(1);
 }
 
@@ -16,9 +16,13 @@ if (!/(^|\.)feishu\.cn$|(^|\.)larksuite\.com$|(^|\.)larkoffice\.com$/i.test(home
 }
 const sourceFile = resolve(fileArg);
 if (!existsSync(sourceFile)) throw new Error(`Source file does not exist: ${sourceFile}`);
-if (!['.md', '.markdown', '.mark'].includes(extname(sourceFile).toLowerCase())) {
-  throw new Error('Only Markdown imports are supported.');
-}
+const sourceExt = extname(sourceFile).toLowerCase();
+const formatLabels = ['.md', '.markdown', '.mark'].includes(sourceExt)
+  ? ['Markdown']
+  : sourceExt === '.docx'
+    ? ['Microsoft Word', 'Word', 'DOCX']
+    : null;
+if (!formatLabels) throw new Error('Only Markdown and DOCX imports are supported.');
 const expectedTitle = basename(sourceFile, extname(sourceFile));
 const port = Number(process.env.AI_CHROME_PORT || 9222);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -50,6 +54,16 @@ async function rectForText(page, text) {
   }, text);
 }
 
+async function rectForAnyText(page, texts) {
+  for (const candidate of texts) {
+    const rect = await rectForText(page, candidate);
+    if (rect) return rect;
+  }
+  const dialogText = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="dialog"]')].map((dialog) => dialog.innerText).join('\n').slice(0, 1000));
+  throw new Error(`Import format not found. Dialog text: ${dialogText}`);
+}
+
 const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
 const browser = await puppeteer.connect({
   browserWSEndpoint: version.webSocketDebuggerUrl,
@@ -57,7 +71,7 @@ const browser = await puppeteer.connect({
 });
 const browserSession = await browser.target().createCDPSession();
 const { targetId } = await browserSession.send('Target.createTarget', {
-  url: 'about:blank',
+  url: homeUrl.href,
   background: true,
 });
 const target = await browser.waitForTarget((item) => item._targetId === targetId, { timeout: 5000 });
@@ -67,8 +81,8 @@ try {
   page.setDefaultTimeout(8000);
   const session = await page.createCDPSession();
   await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  await page.goto(homeUrl.href, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await sleep(2500);
+  await page.waitForSelector('[data-selector="workspace-next-create_new_file"]', { timeout: 20000 });
+  await sleep(500);
 
   const alreadyExists = await page.evaluate((title) =>
     (document.body.innerText || '').split('\n').some((line) => line.trim() === title), expectedTitle);
@@ -88,12 +102,38 @@ try {
   await sleep(600);
 
   const chooserPromise = page.waitForFileChooser({ timeout: 8000 });
-  await clickPoint(session, await rectForText(page, 'Markdown'));
+  await clickPoint(session, await rectForAnyText(page, formatLabels));
   const chooser = await chooserPromise;
   await chooser.accept([sourceFile]);
   await sleep(20000);
 
-  console.log(JSON.stringify({ submitted: true, title: expectedTitle }));
+  let importedUrl = null;
+  let lookupPage = null;
+  try {
+    const { targetId: lookupTargetId } = await browserSession.send('Target.createTarget', {
+      url: homeUrl.href,
+      background: true,
+    });
+    const lookupTarget = await browser.waitForTarget(
+      (item) => item._targetId === lookupTargetId,
+      { timeout: 5000 },
+    );
+    lookupPage = await lookupTarget.page();
+    await lookupPage.waitForSelector('[data-node-uid*="wikiToken="]', { timeout: 20000 });
+    await sleep(500);
+    importedUrl = await lookupPage.evaluate((title, origin) => {
+      const match = [...document.querySelectorAll('[data-node-uid*="wikiToken="]')].find((element) =>
+        (element.innerText || element.textContent || '').split('\n').some((line) => line.trim() === title));
+      const uid = match?.getAttribute('data-node-uid') || '';
+      const token = /(?:^|&)wikiToken=([^&]+)/.exec(uid)?.[1];
+      return token ? `${origin}/wiki/${token}` : null;
+    }, expectedTitle, homeUrl.origin);
+  } catch (error) {
+    console.warn(`Import submitted; URL lookup skipped: ${error.message}`);
+  } finally {
+    await lookupPage?.close().catch(() => {});
+  }
+  console.log(JSON.stringify({ submitted: true, title: expectedTitle, url: importedUrl }));
 } finally {
   await page.close().catch(() => {});
   browser.disconnect();

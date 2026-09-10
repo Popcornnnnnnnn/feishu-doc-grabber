@@ -45,6 +45,9 @@ check(Buffer.byteLength(markdown) >= expected.minMarkdownBytes,
 for (const sentinel of expected.sentinels || []) {
   check(markdown.includes(sentinel), `missing sentinel: ${sentinel}`);
 }
+for (const sentinel of expected.commentSentinels || []) {
+  check(markdown.includes(sentinel), `missing comment sentinel: ${sentinel}`);
+}
 
 const evidence = document.integrity?.evidence || {};
 if (expected.minBlocks != null) {
