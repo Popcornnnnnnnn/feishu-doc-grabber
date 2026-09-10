@@ -481,6 +481,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         },
         comments: { status: commentStatus, threads: threads.length, error: commentError },
         unknownBlocks: parsed.stats.unknownBlocks,
+        blocks: parsed.stats.blocks,
+        blockTypes: parsed.stats.types,
       });
       return { url, ok: true, file, integrity };
     }
@@ -594,6 +596,8 @@ ${body}`);
       },
       comments: { status: commentStatus, threads: threads.length, error: commentError },
       unknownBlocks: data.unknowns.length,
+      blocks: data.blockCount,
+      blockTypes: null,
     });
     return { url, ok: true, file, integrity };
   } finally { await page.close().catch(() => {}); }

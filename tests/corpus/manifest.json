@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "FG-01",
+      "title": "Basic Rich Text",
+      "state": "live",
+      "setup": "native_editor",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-01 Basic Rich Text.md",
+      "coverage": ["paragraph", "heading1", "heading2", "bold", "bullet", "ordered", "quote", "divider"],
+      "expect": {
+        "integrity": "complete",
+        "minBlocks": 14,
+        "requiredBlockTypes": ["page", "text", "heading1", "heading2", "bullet", "ordered", "quote_container", "divider"],
+        "sentinels": ["BASIC-END-7F3A"],
+        "minMarkdownBytes": 250
+      }
+    },
+    {
+      "id": "FG-02",
+      "title": "Native Tables",
+      "state": "broken_remote_fixture",
+      "setup": "native_editor",
+      "foregroundRequired": true,
+      "source": "tests/source-docs/FG-02 Native Tables.md",
+      "coverage": ["table", "empty_cells", "unicode_cells", "wide_table", "rowspan", "colspan"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["TABLE-A1-8D31", "TABLE-MERGE-C7", "TABLE-END-91AF"],
+        "minMarkdownBytes": 500
+      }
+    },
+    {
+      "id": "FG-03",
+      "title": "Structured Markdown Import",
+      "state": "source_ready",
+      "setup": "drive_import_docx",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-03 Markdown Import.md",
+      "coverage": ["bold", "italic", "inline_code", "link", "quote", "nested_list", "ordered", "markdown_table", "code"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["QUOTE-9B21", "ROW-A1", "ROW-B2", "ROW-C3", "MARKDOWN-END-42C7"],
+        "minMarkdownBytes": 500
+      }
+    },
+    {
+      "id": "FG-04",
+      "title": "Long Document",
+      "state": "generator_ready",
+      "setup": "drive_import_docx",
+      "foregroundRequired": false,
+      "source": "tests/generated/FG-04 Long Document.md",
+      "generator": "node tools/generate-long-test-doc.mjs",
+      "coverage": ["pagination", "block_order", "tail_completeness", "large_document"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["LONG-BLOCK-0001", "LONG-BLOCK-0120", "LONG-BLOCK-0240", "LONG-END-0240"],
+        "minMarkdownBytes": 30000
+      }
+    },
+    {
+      "id": "FG-05",
+      "title": "Images",
+      "state": "local_assets_ready",
+      "setup": "native_media_insert",
+      "foregroundRequired": true,
+      "source": "tests/source-docs/FG-05 Images.md",
+      "coverage": ["png", "jpeg", "svg", "duplicate_image", "unicode_alt", "large_image"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["IMAGE-TOP-A62C", "IMAGE-END-B8E4"],
+        "media": { "images": 5 },
+        "minMarkdownBytes": 200
+      }
+    },
+    {
+      "id": "FG-06",
+      "title": "Attachments",
+      "state": "local_assets_ready",
+      "setup": "native_media_insert",
+      "foregroundRequired": true,
+      "source": "tests/source-docs/FG-06 Attachments.md",
+      "coverage": ["txt_attachment", "pdf_attachment", "zip_attachment", "unicode_filename", "no_extension"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["ATTACH-TOP-7AC2", "ATTACH-END-36D9"],
+        "media": { "attachments": 5 },
+        "minMarkdownBytes": 200
+      }
+    },
+    {
+      "id": "FG-07",
+      "title": "Comment Threads",
+      "state": "blocked_by_native_editor",
+      "setup": "native_comments",
+      "foregroundRequired": true,
+      "coverage": ["paragraph_comment", "inline_comment", "reply_thread", "resolved_comment", "unicode_comment"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["COMMENT-ANCHOR-A3", "COMMENT-ANCHOR-B7", "COMMENT-END-E119"],
+        "minCommentThreads": 3,
+        "minMarkdownBytes": 400
+      }
+    },
+    {
+      "id": "FG-08",
+      "title": "Embedded Sheet",
+      "state": "blocked_by_native_editor",
+      "setup": "native_sheet",
+      "foregroundRequired": true,
+      "coverage": ["sheet_svg", "merged_cells", "formula", "wide_sheet", "unicode_cells"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["SHEET-A1-31CF", "SHEET-END-911B"],
+        "minMarkdownBytes": 500
+      }
+    },
+    {
+      "id": "FG-09",
+      "title": "Whiteboard",
+      "state": "blocked_by_native_editor",
+      "setup": "native_whiteboard",
+      "foregroundRequired": true,
+      "coverage": ["whiteboard_text", "shape", "connector", "screenshot_fallback"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["BOARD-TOP-C45D", "BOARD-END-A201"],
+        "media": { "whiteboards": 1 },
+        "minMarkdownBytes": 150
+      }
+    },
+    {
+      "id": "FG-10",
+      "title": "Complex Layout",
+      "state": "blocked_by_native_editor",
+      "setup": "native_editor",
+      "foregroundRequired": true,
+      "coverage": ["callout", "todo", "columns", "nested_quote", "mention", "bookmark", "unknown_block_detection"],
+      "expect": {
+        "integrity": "complete",
+        "sentinels": ["LAYOUT-COL-A", "LAYOUT-COL-B", "LAYOUT-END-70D2"],
+        "minMarkdownBytes": 500
+      }
+    }
+  ]
+}
