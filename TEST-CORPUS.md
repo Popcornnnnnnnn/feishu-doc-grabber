@@ -9,7 +9,7 @@ Local source files, generators, or setup notes do **not** count as live coverage
 | FG-01 | Basic rich text | `live` | No |
 | FG-02 | Native and merged tables | `broken_remote_fixture` | Yes |
 | FG-03 | Structured Markdown import | `live` | No |
-| FG-04 | Long document and pagination | `generator_ready` | No |
+| FG-04 | Long document and pagination | `live` | No |
 | FG-05 | Images | `local_assets_ready` | Yes |
 | FG-06 | Attachments | `local_assets_ready` | Yes |
 | FG-07 | Comment threads | `blocked_by_native_editor` | Yes |
@@ -30,4 +30,10 @@ Generate the ignored image and attachment payloads with:
 
 ```bash
 node tools/generate-corpus-assets.mjs
+```
+
+Markdown-backed cases can be imported through the hidden test Chrome target without taking window focus:
+
+```bash
+AI_CHROME_PORT=9223 node tools/import-markdown-background.mjs <drive-home-url> <markdown-file>
 ```

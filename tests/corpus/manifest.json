@@ -48,7 +48,7 @@
     {
       "id": "FG-04",
       "title": "Long Document",
-      "state": "generator_ready",
+      "state": "live",
       "setup": "drive_import_docx",
       "foregroundRequired": false,
       "source": "tests/generated/FG-04 Long Document.md",

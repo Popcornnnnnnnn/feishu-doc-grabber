@@ -17,7 +17,12 @@ import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
-import { htmlToMarkdown, extractClientVars } from './lib/ssr.mjs';
+import {
+  clientVarsDataToMarkdown,
+  extractClientVars,
+  htmlToMarkdown,
+  mergeClientVarsPages,
+} from './lib/ssr.mjs';
 import { evaluateIntegrity } from './lib/integrity.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
@@ -329,6 +334,51 @@ async function fetchHtml(browser, url) {
   return res.text();
 }
 
+/** 按首批 client_vars 给出的 cursor 顺序抓取长文档剩余块。失败时保留已取得内容并标为截断。 */
+async function fetchPaginatedClientVars(browser, url, html) {
+  const raw = extractClientVars(html);
+  if (!raw) return null;
+  let initial;
+  try { initial = JSON.parse(raw)?.data; } catch { return null; }
+  if (!initial?.has_more) return initial;
+
+  const cursors = Array.isArray(initial.next_cursors) ? initial.next_cursors : [];
+  if (!initial.id || !cursors.length) return initial;
+  if (cursors.length > 100) {
+    console.warn(`⚠ 分页 cursor 数量异常（${cursors.length}），保留首批并标记为不完整`);
+    return initial;
+  }
+
+  const origin = new URL(url).origin;
+  const cookies = await getCookiesFor(browser, [url, `${origin}/`]);
+  const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  const limit = Math.max(1, Object.keys(initial.block_map ?? {}).length);
+  const pages = [];
+  for (let i = 0; i < cursors.length; i++) {
+    const api = new URL('/space/api/docx/pages/client_vars', origin);
+    api.searchParams.set('id', initial.id);
+    api.searchParams.set('mode', '7');
+    api.searchParams.set('limit', String(limit));
+    api.searchParams.set('cursor', cursors[i]);
+    try {
+      const response = await fetch(api, {
+        headers: { cookie, 'user-agent': UA, referer: url, 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload?.code !== 0 || !payload?.data?.block_map) {
+        throw new Error(payload?.msg || '响应缺少 block_map');
+      }
+      pages.push(payload.data);
+      console.log(`  分页 ${i + 1}/${cursors.length}：${Object.keys(payload.data.block_map).length} 块`);
+    } catch (error) {
+      console.warn(`⚠ 分页 ${i + 1}/${cursors.length} 拉取失败：${error.message}`);
+      break;
+    }
+  }
+  return mergeClientVarsPages(initial, pages);
+}
+
 /** 下载 SSR 路线解析出的图片与附件 */
 async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) {
   mkdirSync(assetsDir, { recursive: true });
@@ -381,7 +431,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
   // —— 路线 1（Phase C）: SSR 直取，无需打开页面 ——
   if (mode === 'md') {
     console.log('→ SSR 直取（不渲染页面）…');
-    let parsed = null, html = '';
+    let parsed = null, html = '', clientVarsData = null;
     // sheet 的 SSR SVG 服务端存在分钟级波动，多试几种变体
     const forms = [canonUrl, canonUrl + '?chunked=false', canonUrl + '?r=' + Date.now()];
     for (let i = 0; i < forms.length * 2; i++) {
@@ -389,7 +439,10 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       if (/<title>[^<]*404[^<]*<\/title>/.test(html)) {
         throw new Error('文档不存在或无权限（404）。请从浏览器地址栏重新复制链接（注意 I/l、O/0 易混字符），或确认文档未被移动/删除');
       }
-      parsed = htmlToMarkdown(html);
+      clientVarsData = await fetchPaginatedClientVars(browser, forms[i % forms.length], html);
+      parsed = clientVarsData
+        ? clientVarsDataToMarkdown(clientVarsData, html)
+        : htmlToMarkdown(html);
       if (parsed?.markdown?.trim()) {
         const hasAllSheets = parsed.sheets.length === 0 || parsed.stats.sheets > 0;
         if (hasAllSheets) break;
@@ -409,8 +462,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let commentError = null;
       let resolveTop = (blockId) => blockId;
       try {
-        const cvJson = extractClientVars(html);
-        const bmap = cvJson ? JSON.parse(cvJson)?.data?.block_map : null;
+        const cvJson = clientVarsData ? null : extractClientVars(html);
+        const bmap = clientVarsData?.block_map ?? (cvJson ? JSON.parse(cvJson)?.data?.block_map : null);
         const parentOf = {};
         let pageId = null;
         if (bmap) for (const [id, b] of Object.entries(bmap)) {
@@ -467,7 +520,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       if (mode === 'md') body = applyComments(body, threads);
       writeFileSync(file, `# ${title}\n\n${body}\n`);
       console.log(`✓ SSR 解析成功: 块 ${parsed.stats.blocks}（${JSON.stringify(parsed.stats.types)}），sheet SVG ${parsed.stats.sheets}`);
-      if (parsed.stats.hasMore) console.log('⚠ 文档较大，SSR 可能只包含部分块，结果可能不完整（分页拉取待实现）');
+      if (parsed.stats.hasMore) console.log('⚠ 分页未拉取完，结果不完整');
       console.log(`✓ 已导出: ${file}`);
       const integrity = evaluateIntegrity({
         route: 'ssr',
@@ -483,6 +536,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         unknownBlocks: parsed.stats.unknownBlocks,
         blocks: parsed.stats.blocks,
         blockTypes: parsed.stats.types,
+        nextCursors: parsed.stats.nextCursors,
       });
       return { url, ok: true, file, integrity };
     }
