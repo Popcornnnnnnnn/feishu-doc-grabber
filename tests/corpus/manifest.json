@@ -34,7 +34,7 @@
     {
       "id": "FG-03",
       "title": "Structured Markdown Import",
-      "state": "source_ready",
+      "state": "live",
       "setup": "drive_import_docx",
       "foregroundRequired": false,
       "source": "tests/source-docs/FG-03 Markdown Import.md",

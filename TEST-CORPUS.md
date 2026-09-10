@@ -8,7 +8,7 @@ Local source files, generators, or setup notes do **not** count as live coverage
 | --- | --- | --- | --- |
 | FG-01 | Basic rich text | `live` | No |
 | FG-02 | Native and merged tables | `broken_remote_fixture` | Yes |
-| FG-03 | Structured Markdown import | `source_ready` | No |
+| FG-03 | Structured Markdown import | `live` | No |
 | FG-04 | Long document and pagination | `generator_ready` | No |
 | FG-05 | Images | `local_assets_ready` | Yes |
 | FG-06 | Attachments | `local_assets_ready` | Yes |
