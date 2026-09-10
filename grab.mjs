@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
 import { htmlToMarkdown, extractClientVars } from './lib/ssr.mjs';
+import { evaluateIntegrity } from './lib/integrity.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
@@ -28,7 +29,7 @@ const ALLOWED_PATH = /^\/(docx|wiki|docs)\//i;
 function parseArgs(argv) {
   const args = {
     urls: [], out: join(homedir(), 'Downloads'), list: null,
-    format: 'pdf', timeoutMs: 180000,
+    format: 'pdf', timeoutMs: 180000, allowFocus: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -36,6 +37,7 @@ function parseArgs(argv) {
     else if (a === '--list') args.list = argv[++i];
     else if (a === '--format' || a === '-f') args.format = argv[++i];
     else if (a === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000;
+    else if (a === '--allow-focus') args.allowFocus = true;
     else if (a === '--help' || a === '-h') args.help = true;
     else args.urls.push(a);
   }
@@ -46,12 +48,14 @@ function usage() {
   console.log(`feishu-doc-grabber
 
 用法:
-  grab <url> [--format pdf|md|html|capture] [--out <dir>]
+  grab <url> [--format pdf|md|html|capture] [--out <dir>] [--allow-focus]
 
   pdf      printToPDF（快，但宽表格可能被裁、可能带浮层 —— Phase A）
   md       DOM 提取转 Markdown，图片下载到 assets/（Phase B）
   html     清洗后的正文 HTML（Phase B）
   capture  录制全部网络响应到 out/capture-*/，用于分析 block JSON（Phase C）
+
+  --allow-focus  允许画板/表格截图时短暂切到 AI Chrome；默认完全后台运行
 
   grab --list <urls.txt>   批量（每行一个 URL，# 注释）
 
@@ -245,14 +249,15 @@ async function canonicalizeUrl(browser, url) {
 }
 
 /** 拉取文档评论，输出 markdown 片段（无评论时返回 null） */
-async function fetchCommentThreads(browser, objToken) {
+async function fetchCommentThreads(browser, objToken, docUrl) {
   if (!objToken) return [];
-  const cookies = await getCookiesFor(browser, ['https://example.feishu.cn/']);
+  const origin = new URL(docUrl).origin;
+  const cookies = await getCookiesFor(browser, [`${origin}/`]);
   const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
   const csrf = cookies.find((c) => c.name === '_csrf_token')?.value || cookies.find((c) => c.name === 'swp_csrf_token')?.value || '';
-  const H2 = { cookie, 'user-agent': UA, 'content-type': 'application/x-www-form-urlencoded', referer: 'https://example.feishu.cn/', 'x-csrftoken': csrf };
+  const H2 = { cookie, 'user-agent': UA, 'content-type': 'application/x-www-form-urlencoded', referer: `${origin}/`, 'x-csrftoken': csrf };
   const idsResp = await (await fetch(
-    `https://example.feishu.cn/space/api/comment/commentid/all?obj_type=22&token=${objToken}&comment_type_list=0&comment_type_list=1&need_comment_relations=true`,
+    `${origin}/space/api/comment/commentid/all?obj_type=22&token=${objToken}&comment_type_list=0&comment_type_list=1&need_comment_relations=true`,
     { method: 'POST', headers: H2 }
   )).json();
   if (idsResp.code !== 0) throw new Error(`commentid/all: ${idsResp.msg}`);
@@ -267,7 +272,7 @@ async function fetchCommentThreads(browser, objToken) {
   form.set('need_reply', 'true');
   form.set('need_reaction', 'true');
   form.set('no_need_comment_relations', 'true');
-  const batchResp = await (await fetch('https://example.feishu.cn/space/api/comment/batch', {
+  const batchResp = await (await fetch(`${origin}/space/api/comment/batch`, {
     method: 'POST', headers: H2, body: form.toString(),
   })).json();
   if (batchResp.code !== 0) throw new Error(`comment/batch: ${batchResp.msg}`);
@@ -292,6 +297,7 @@ async function fetchCommentThreads(browser, objToken) {
 
 /** 评论批注：原句高亮 + 编号上标（跳文末）+ 文末批注区（跳回原文） */
 function applyComments(body, threads) {
+  if (!threads.length) return body;
   threads.forEach((th, i) => {
     const marker = `\u27E6REF${i}\u27E7`;
     const ref = `<span id="cmt-ref-${i}"><sup><a href="#cmt-note-${i}">\u3010\ud83d\udcac${i + 1}\u3011</a></sup></span>`;
@@ -364,7 +370,7 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
 
 // ---------- Phase B: Markdown / HTML ----------
 
-async function grabExtract(browser, url, outDir, timeoutMs, mode) {
+async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) {
   mkdirSync(outDir, { recursive: true });
 
   // token 规范化（SSR/DOM 两条路线都要用 objToken 拉评论）
@@ -399,6 +405,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
       if (sheetsNeedShot) console.log(`⚠ sheet SVG 不可用，${parsed.sheets.length} 个表格将走截图兜底`);
       // 评论线程（锚点 → 顶层块）
       let threads = [];
+      let commentStatus = objToken ? 'checked' : 'unknown';
+      let commentError = null;
       let resolveTop = (blockId) => blockId;
       try {
         const cvJson = extractClientVars(html);
@@ -418,9 +426,13 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
           }
           return null;
         };
-        threads = await fetchCommentThreads(browser, objToken);
+        threads = await fetchCommentThreads(browser, objToken, canonUrl);
         if (threads.length) console.log(`→ 拉取到评论 ${threads.length} 条，插入到对应段落…`);
-      } catch (e) { console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`); }
+      } catch (e) {
+        commentStatus = 'failed';
+        commentError = e.message;
+        console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`);
+      }
       // 评论锚点标记：追加到锚点块所在顶层 part 末尾
       threads.forEach((th, i) => {
         const top = resolveTop(th.blockId);
@@ -428,13 +440,26 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
         if (p) p.md += ` \u27E6REF${i}\u27E7`;
       });
       let body = parts.map((p) => p.md).join('\n\n');
+      let imageCount = 0;
+      let attachmentCount = 0;
+      let whiteboardCount = 0;
+      let sheetFallbackCount = 0;
       const needMedia = parsed.images.length || parsed.files.length || parsed.whiteboards.length || sheetsNeedShot;
       if (needMedia) {
         console.log(`→ 下载图片 ${parsed.images.length} 张 / 附件 ${parsed.files.length} 个 / 画板 ${parsed.whiteboards.length} 块…`);
         const map = await downloadSsrMedia(browser, canonUrl, parsed.images, parsed.files, join(outDir, 'assets'), outDir);
+        imageCount = parsed.images.filter((img) => map.has(`ssrimg://${img.token}/${img.blockId}`)).length;
+        attachmentCount = parsed.files.filter((item) => map.has(`ssrfile://${item.token}/${item.blockId}`)).length;
         for (const [ph, rel] of map) body = body.split(ph).join(rel);
         if (parsed.whiteboards.length || sheetsNeedShot) {
-          const bmap = await screenshotCanvasBlocks(browser, canonUrl, parsed.whiteboards, sheetsNeedShot ? parsed.sheets : [], join(outDir, 'assets'));
+          let bmap = new Map();
+          if (options.allowFocus) {
+            bmap = await screenshotCanvasBlocks(browser, canonUrl, parsed.whiteboards, sheetsNeedShot ? parsed.sheets : [], join(outDir, 'assets'));
+          } else {
+            console.warn('⚠ 后台模式跳过画板/表格截图；如明确允许切换 AI Chrome，可加 --allow-focus');
+          }
+          whiteboardCount = parsed.whiteboards.filter((item) => bmap.has(`ssrboard://${item.token}/${item.blockId}`)).length;
+          sheetFallbackCount = (sheetsNeedShot ? parsed.sheets : []).filter((item) => bmap.has(`ssrsheet://${item.token}/${item.blockId}`)).length;
           for (const [ph, rel] of bmap) body = body.split(ph).join(rel);
           body = body.replace(/!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g, '> 🎨 $1（截图失败，请在飞书查看）');
         }
@@ -444,7 +469,20 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
       console.log(`✓ SSR 解析成功: 块 ${parsed.stats.blocks}（${JSON.stringify(parsed.stats.types)}），sheet SVG ${parsed.stats.sheets}`);
       if (parsed.stats.hasMore) console.log('⚠ 文档较大，SSR 可能只包含部分块，结果可能不完整（分页拉取待实现）');
       console.log(`✓ 已导出: ${file}`);
-      return { url, ok: true, file };
+      const integrity = evaluateIntegrity({
+        route: 'ssr',
+        bodyPresent: Boolean(body.trim()),
+        pagination: parsed.stats.hasMore ? 'truncated' : 'complete',
+        media: {
+          images: { expected: parsed.images.length, exported: imageCount },
+          attachments: { expected: parsed.files.length, exported: attachmentCount },
+          whiteboards: { expected: parsed.whiteboards.length, exported: whiteboardCount },
+          sheetFallbacks: { expected: sheetsNeedShot ? parsed.sheets.length : 0, exported: sheetFallbackCount },
+        },
+        comments: { status: commentStatus, threads: threads.length, error: commentError },
+        unknownBlocks: parsed.stats.unknownBlocks,
+      });
+      return { url, ok: true, file, integrity };
     }
     console.log('⚠ SSR 数据不可用（可能需要滚动加载），回落 DOM 提取…');
   }
@@ -459,9 +497,11 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
 
     // 评论：先取线程，再把标记注入锚点块（表格内→所在 td，段落→块尾），提取后原位替换
     let threads = [];
+    let commentStatus = mode === 'md' && objToken ? 'checked' : mode === 'md' ? 'unknown' : 'not_applicable';
+    let commentError = null;
     if (mode === 'md' && objToken) {
       try {
-        threads = await fetchCommentThreads(browser, objToken);
+        threads = await fetchCommentThreads(browser, objToken, canonUrl);
         if (threads.length) {
           await page.evaluate((ths) => {
             ths.forEach((th, i) => {
@@ -497,7 +537,11 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
           }, threads);
           console.log(`→ 注入评论锚点 ${threads.length} 条`);
         }
-      } catch (e) { console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`); }
+      } catch (e) {
+        commentStatus = 'failed';
+        commentError = e.message;
+        console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`);
+      }
     }
 
     console.log(`→ 提取 DOM（${mode}）…`);
@@ -509,10 +553,12 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode) {
     // 图片本地化
     let body = mode === 'md' ? data.markdown : data.html;
     const parts = mode === 'md' ? (data.blocks ?? [{ id: null, md: data.markdown }]) : [{ id: null, md: data.html }];
+    let imageCount = 0;
     if (data.images.length) {
       console.log(`→ 下载图片 ${data.images.length} 张…`);
       const assetsDir = join(outDir, 'assets');
       const map = await downloadImages(browser, url, data.images, assetsDir, 'assets');
+      imageCount = map.size;
       for (const [src, rel] of map) {
         body = body.split(src).join(rel);
       }
@@ -536,7 +582,20 @@ ${body}`);
     if (mode === 'md' && data.unknowns.length) {
       console.log('ℹ 未识别块签名（迭代 clean.mjs 用）:', JSON.stringify(data.unknowns.slice(0, 10)));
     }
-    return { url, ok: true, file };
+    const integrity = evaluateIntegrity({
+      route: 'dom',
+      bodyPresent: Boolean(body.trim()),
+      pagination: 'unknown',
+      media: {
+        images: { expected: data.images.length, exported: imageCount },
+        attachments: { expected: 0, exported: 0 },
+        whiteboards: { expected: 0, exported: 0 },
+        sheetFallbacks: { expected: 0, exported: 0 },
+      },
+      comments: { status: commentStatus, threads: threads.length, error: commentError },
+      unknownBlocks: data.unknowns.length,
+    });
+    return { url, ok: true, file, integrity };
   } finally { await page.close().catch(() => {}); }
 }
 
@@ -698,7 +757,7 @@ async function main() {
       try {
         const fn = args.format === 'pdf' ? grabPdf
           : args.format === 'capture' ? grabCapture
-          : (b, u, o, t) => grabExtract(b, u, o, t, args.format);
+          : (b, u, o, t) => grabExtract(b, u, o, t, args.format, { allowFocus: args.allowFocus });
         results.push(await withRetry(() => fn(browser, url, args.out, args.timeoutMs)));
       } catch (e) {
         results.push({ url, ok: false, error: e.message });
@@ -708,13 +767,37 @@ async function main() {
     browser.disconnect();
   }
 
+  mkdirSync(args.out, { recursive: true });
+  const reportFile = join(args.out, 'export-report.json');
+  const documents = results.map((result) => ({
+    url: result.url,
+    output: result.file || null,
+    operationalStatus: result.ok ? 'success' : 'failed',
+    error: result.error || null,
+    integrity: result.integrity || evaluateIntegrity({
+      route: args.format,
+      bodyPresent: Boolean(result.ok),
+      pagination: 'unknown',
+      comments: { status: args.format === 'md' ? 'unknown' : 'not_applicable' },
+    }),
+  }));
+  writeFileSync(reportFile, JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), documents }, null, 2) + '\n');
+  console.log(`完整性报告: ${reportFile}`);
+
   const ok = results.filter((r) => r.ok);
   const fail = results.filter((r) => !r.ok);
+  const verdicts = documents.reduce((acc, item) => {
+    acc[item.integrity.verdict] = (acc[item.integrity.verdict] || 0) + 1;
+    return acc;
+  }, {});
   console.log(`\n完成: ${ok.length} 成功, ${fail.length} 失败`);
+  console.log(`完整性: ${verdicts.complete || 0} complete, ${verdicts.degraded || 0} degraded, ${verdicts.incomplete || 0} incomplete`);
   if (fail.length) {
     writeFileSync(join(args.out, '_failed.txt'), fail.map((r) => `${r.url}\t${r.error}`).join('\n'));
     console.log(`失败清单: ${join(args.out, '_failed.txt')}`);
     process.exitCode = 1;
+  } else if ((verdicts.degraded || 0) + (verdicts.incomplete || 0) > 0) {
+    process.exitCode = 2;
   }
 }
 
