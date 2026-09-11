@@ -28,9 +28,15 @@ feishu-grab <url-1> <url-2> --out exports
 feishu-grab --list urls.txt --out exports
 ```
 
+Every batch also creates `index.html`, a local result page with per-document status and integrity details. Documents that did not reach `complete` are written to `retry-urls.txt` and can be rerun directly from the report:
+
+```bash
+feishu-grab --retry exports/export-report.json --out exports/retry
+```
+
 ## Output and integrity
 
-Each run writes Markdown, downloaded assets, and `export-report.json`. Every document receives one verdict:
+Each run writes Markdown, downloaded assets, `index.html`, `retry-urls.txt`, and `export-report.json`. Every document receives one verdict:
 
 - `complete`: all checked dimensions have positive completeness evidence.
 - `degraded`: a file was produced, but at least one dimension cannot be proven.

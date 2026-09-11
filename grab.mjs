@@ -33,6 +33,7 @@ import {
 } from './lib/comments.mjs';
 import { validateDownloadedPayload } from './lib/media.mjs';
 import { decodeSheetClientVars, parseEmbeddedSheetRef, sheetBlockRequirements } from './lib/sheet.mjs';
+import { renderResultPage, retryableDocuments } from './lib/report.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
@@ -43,14 +44,15 @@ const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.ur
 
 function parseArgs(argv) {
   const args = {
-    urls: [], out: join(homedir(), 'Downloads'), list: null,
-    format: 'md', timeoutMs: 180000, allowRender: false,
+    urls: [], out: join(homedir(), 'Downloads'), list: null, retry: null,
+    format: 'md', formatExplicit: false, timeoutMs: 180000, allowRender: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') args.out = argv[++i];
     else if (a === '--list') args.list = argv[++i];
-    else if (a === '--format' || a === '-f') args.format = argv[++i];
+    else if (a === '--retry') args.retry = argv[++i];
+    else if (a === '--format' || a === '-f') { args.format = argv[++i]; args.formatExplicit = true; }
     else if (a === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000;
     else if (a === '--render-fallback' || a === '--allow-focus') args.allowRender = true;
     else if (a === '--version' || a === '-v') args.version = true;
@@ -65,6 +67,7 @@ function usage() {
 
 用法:
   feishu-grab <url> [--format md|pdf|html|capture] [--out <dir>] [--render-fallback]
+  feishu-grab --retry <export-report.json> [--out <dir>]
 
   md       默认。SSR/API 直取 Markdown，不创建 Chrome 标签页
   pdf      printToPDF；需要渲染，可能激活 Chrome
@@ -75,6 +78,7 @@ function usage() {
                      macOS 可能因此激活 Chrome（--allow-focus 为兼容别名）
 
   feishu-grab --list <urls.txt>   批量（每行一个 URL，# 注释）
+  feishu-grab --retry <report>    重跑上次未 complete 的文档
 
 浏览器: 自动使用 AI 专属 Chrome（独立 profile ~/.ai-chrome-profile）
   feishu-chrome login | start | status | open <url> | stop
@@ -483,7 +487,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     const forms = [canonUrl, canonUrl + '?chunked=false', canonUrl + '?r=' + Date.now()];
     for (let i = 0; i < forms.length * 2; i++) {
       html = await fetchHtml(browser, forms[i % forms.length]);
-      if (/(?:accounts|passport)\.feishu\.cn|<title>[^<]*(?:登录|log in|sign in)[^<]*<\/title>/i.test(html)) {
+      if (/<title>[^<]*(?:登录|log in|sign in)[^<]*<\/title>/i.test(html)) {
         throw new Error('未登录飞书。请先运行 feishu-chrome login，完成一次显式登录');
       }
       if (/<title>[^<]*404[^<]*<\/title>/.test(html)) {
@@ -911,15 +915,25 @@ async function withRetry(fn, times = 2) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.version) { console.log(VERSION); return; }
-  if (args.help || (!args.urls.length && !args.list)) { usage(); process.exit(0); }
-  if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`未知格式: ${args.format}`);
-
+  if (args.help || (!args.urls.length && !args.list && !args.retry)) { usage(); process.exit(0); }
   let urls = args.urls.map(validateUrl);
   if (args.list) {
     const lines = readFileSync(args.list, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
     urls.push(...lines.map(validateUrl));
   }
+  if (args.retry) {
+    const previous = JSON.parse(readFileSync(args.retry, 'utf8'));
+    if (!args.formatExplicit && previous.run?.format) args.format = previous.run.format;
+    const retryUrls = retryableDocuments(previous).map((document) => validateUrl(document.url));
+    urls.push(...retryUrls);
+    console.log(`→ 从 ${args.retry} 读取到 ${retryUrls.length} 篇待重试文档`);
+  }
+  if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`未知格式: ${args.format}`);
   urls = [...new Set(urls)];
+  if (!urls.length) {
+    console.log('✓ 上次导出已全部 complete，没有需要重试的文档');
+    return;
+  }
   console.log(`共 ${urls.length} 篇 · 格式 ${args.format} · 输出 ${args.out}`);
 
   const browser = await connect();
@@ -953,8 +967,21 @@ async function main() {
       comments: { status: args.format === 'md' ? 'unknown' : 'not_applicable' },
     }),
   }));
-  writeFileSync(reportFile, JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), documents }, null, 2) + '\n');
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    run: { format: args.format, renderFallback: args.allowRender },
+    documents,
+  };
+  writeFileSync(reportFile, JSON.stringify(report, null, 2) + '\n');
+  const retryFile = join(args.out, 'retry-urls.txt');
+  const retryUrls = retryableDocuments(report).map((document) => document.url);
+  writeFileSync(retryFile, ['# Documents that did not reach complete', ...retryUrls].join('\n') + '\n');
+  const resultPage = join(args.out, 'index.html');
+  writeFileSync(resultPage, renderResultPage(report));
   console.log(`完整性报告: ${reportFile}`);
+  console.log(`结果页: ${resultPage}`);
+  if (retryUrls.length) console.log(`重试清单: ${retryFile}`);
 
   const ok = results.filter((r) => r.ok);
   const fail = results.filter((r) => !r.ok);
