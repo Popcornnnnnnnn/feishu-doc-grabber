@@ -653,6 +653,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
             expected: parsed.sheets.length,
             exported: structuredSheets.filter((item) => item.sheet?.structuredComplete).length,
             formulaExpressionsMissing: structuredSheets.reduce((sum, item) => sum + Number(item.sheet?.formulaExpressionsMissing || 0), 0),
+            mergedRanges: structuredSheets.reduce((sum, item) => sum + Number(item.sheet?.merges?.length || 0), 0),
           },
           sheetFallbacks: { expected: sheetFallbacks.length, exported: sheetFallbackCount },
         },

@@ -13,7 +13,7 @@ An export is not considered complete merely because a file was written. Every ru
 | Body | Non-empty extracted body | Empty body is incomplete |
 | Pagination | SSR explicitly reports `has_more = false` | Unknown is degraded; `has_more = true` is incomplete |
 | Images and attachments | Exported count equals detected count | Any missing resource is incomplete |
-| Structured sheets | Every declared cell/formula block is decoded and the computed values are exported | Missing blocks are incomplete; unavailable formula expressions are degraded even when computed values are preserved |
+| Structured sheets | Every declared cell/formula block is decoded; computed values, formula expressions, and declared merge mutations are exported | Missing blocks are incomplete; unavailable formula expressions are degraded even when computed values are preserved; corpus cases may require a minimum merge count to catch malformed fixtures |
 | Whiteboards and sheet fallbacks | No visual fallback is required | A complete screenshot set is degraded because structured/offscreen completeness is unproven; a missing screenshot is incomplete |
 | Comments | Comment endpoints were checked successfully | Unavailable or failed check is degraded |
 | Block recognition | No unknown DOM block signatures | Unknown signatures are degraded |

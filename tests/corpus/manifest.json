@@ -139,22 +139,24 @@
     {
       "id": "FG-08",
       "title": "Embedded Sheet",
-      "state": "live",
+      "state": "live_fixture_incomplete",
       "setup": "drive_import_then_background_native_sheet",
       "foregroundRequired": false,
       "source": "tests/source-docs/FG-08 Embedded Sheet.md",
       "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/expand-sheet-fixture-background.mjs + tools/set-sheet-cell-background.mjs",
       "coverage": ["native_sheet", "wide_sheet", "formula_result", "unicode_cell", "structured_cell_export", "offscreen_tail", "json_sidecar"],
-      "remainingGaps": ["formula_expression_export", "merged_cell_readback"],
+      "remainingGaps": ["live_merged_cell_fixture_readback"],
       "expect": {
-        "integrity": "degraded",
+        "integrity": "complete",
         "minBlocks": 7,
         "requiredBlockTypes": ["page", "sheet", "heading1", "text"],
         "sentinels": ["SHEET-A1-31CF", "SHEET-END-911B"],
         "media": { "structuredSheets": 1, "sheetFallbacks": 0 },
         "structuredSheet": {
           "asset": "sheet-1.json",
-          "formulaExpressionsMissing": 1,
+          "formulaExpressionsMissing": 0,
+          "minMergedRanges": 1,
+          "formulas": { "D2": "=SUM(C2:C4)" },
           "cells": {
             "A1": "ID",
             "B2": "表格 Ω 行 | SHEET-CELL-DATA-B2-8E4C",

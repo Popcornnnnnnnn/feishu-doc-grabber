@@ -13,7 +13,7 @@ Local source files, generators, or setup notes do **not** count as live coverage
 | FG-05 | Images with byte-fidelity checks | `live` | No |
 | FG-06 | Native attachments with byte-fidelity checks | `live` | No |
 | FG-07 | Native whole-document comments | `live` | No |
-| FG-08 | Embedded sheet, formula, Unicode, wide/offscreen cells | `live` (`degraded`) | No |
+| FG-08 | Embedded sheet, formula, Unicode, wide/offscreen cells | `live_fixture_incomplete` | No |
 | FG-09 | Whiteboard with three shapes, two connectors, labels, Unicode text | `live` (`degraded`) | No |
 | FG-10 | Callout, checked/unchecked Todo, columns, quote container | `live` | No |
 
@@ -54,6 +54,6 @@ FG-05 verifies five exported image payloads by SHA-256, including a duplicate, a
 
 FG-06 uses native Feishu file blocks created through the hidden AI Chrome target. TXT, PDF, ZIP, Unicode filename, and no-extension payloads are each checked by filename and SHA-256 after export.
 
-FG-08 and FG-09 intentionally validate as `degraded`. FG-08 now exports the declared Sheet cell blocks as a coordinate-preserving HTML table plus JSON sidecar, including the offscreen L12 tail and D2's computed value. It remains degraded because the formula expression itself is not yet decoded, and the merged-cell fixture still lacks structural readback. FG-09 remains a visual fallback and still lacks structured whiteboard export.
+FG-08 exports the declared Sheet cell blocks as a coordinate-preserving HTML table plus JSON sidecar, including the offscreen L12 tail, D2's computed value, and its `=SUM(C2:C4)` expression. The exporter also decodes merge mutations into `rowspan`/`colspan`. The current live fixture is intentionally marked `live_fixture_incomplete`: its saved resource snapshot contains the `MERGE-E10-F11` text but no actual merge mutation, so corpus validation now fails until the isolated test sheet is repaired and freshly exported. FG-09 intentionally remains `degraded`: it is a visual fallback and still lacks structured whiteboard export.
 
 FG-10 proves the native block types currently supported by the SSR parser. A true nested quote, user mention, and bookmark card remain explicit gaps and are not counted as covered.

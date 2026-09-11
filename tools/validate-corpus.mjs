@@ -78,9 +78,18 @@ if (expected.structuredSheet) {
     check(Number(sidecar.missingFormulaValues || 0) === 0, 'structured Sheet has missing formula values');
     check(Number(sidecar.formulaExpressionsMissing || 0) === Number(expected.structuredSheet.formulaExpressionsMissing || 0),
       `formulaExpressionsMissing is ${sidecar.formulaExpressionsMissing || 0}, expected ${expected.structuredSheet.formulaExpressionsMissing || 0}`);
+    if (expected.structuredSheet.minMergedRanges != null) {
+      check((sidecar.merges || []).length >= expected.structuredSheet.minMergedRanges,
+        `merged Sheet ranges are ${(sidecar.merges || []).length}, expected at least ${expected.structuredSheet.minMergedRanges}`);
+    }
     const values = Object.fromEntries((sidecar.cells || []).map((cell) => [cell.address, cell.value]));
     for (const [address, value] of Object.entries(expected.structuredSheet.cells || {})) {
       check(values[address] === value, `Sheet cell ${address} is ${JSON.stringify(values[address])}, expected ${JSON.stringify(value)}`);
+    }
+    const formulas = Object.fromEntries((sidecar.cells || []).map((cell) => [cell.address, cell.formula]));
+    for (const [address, formula] of Object.entries(expected.structuredSheet.formulas || {})) {
+      check(formulas[address] === formula,
+        `Sheet formula ${address} is ${JSON.stringify(formulas[address])}, expected ${JSON.stringify(formula)}`);
     }
   } catch (error) {
     failures.push(`structured Sheet sidecar is unavailable: ${error.message}`);
