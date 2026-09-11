@@ -10,6 +10,7 @@ import {
 } from '../lib/sheet.mjs';
 
 const CELL_BLOCK = 'H4sIAAAAAAAAA62RwUrDQBCGZ3fTdFlSWFYPcQVZctBYWMhGoSGnpulWCwlIkr6Ad9/AR/DgI9ibHvoGnr0IXvUJpG+haBrtyZPf5ZuZf2AOw94IJeKZUO/yiTBOgYPvKW/oTq4uTByJFWI+tIxb0Y13xwLPp+Jovbx/v3tULw9qvbxR16o+t7bRuS0KPc2aTE9indjTXAxKW51ZbU2kZ8YI0e412bzQhYn1yWg0dL7OxwcUSVwZ2Z+l9aJMTdDL60UZBrgyAc6P0322x3BlxA4F/tGBfKIgAQnBIXM4hMAcjkKQroIQkoFkHHxo69jhWOH4FbFbhGALTJzfprcVuPBf9P+OqQDhUsIhao0iJFyKOURIUOpw8LtJZ/xt8mMSIbn53ScTFQDz2wEAAA==';
+const MERGED_CELL_BLOCK = 'H4sIAAAAAAAAA62RQUrDQBSG38yk6TikMIwuYgQZstBYGMhEoSGrpulUCwlIkl7AvTfwCC48gt3pwht4Ahd6AF1Lb6GkSWnBrT88vv+998NbPPZFKBEfhDo3b4RxChxcRzpDe3J7raNQvCDmQqtxC9rxYCzwfCpOV8un78dX+f4sV8t7eSerK2NqlZk8V9O0TtUkUrG5yMSgMOWlUUaHaqa1EG2uTue5ynWkzkejodWcj44p8nCpvf4sqRZFov1eVi2KwMel9nF2lhyxQ4ZLLfYp8J+NkEskxOCBf8IsDgEwi6MAPFtCAPHAYxxcaH1kcSxx9InYA0KwI0ysbdPbWdjwX+rTraf0z3pPgLAp4RC2RGvidU+pxcHdTDbEXRKHSDTVeBKC1/3vFyaXZPLfAQAA';
 const BLOCK_META = 'H4sIAAAAAAAAA52Ry27DIBBF/2XWLABjjFlGbaUuKlWK1E1lWZTgBBWbCpw+YvHvlR9KmrSLqDvmDszccxlg1T4SikEOoI1zK+f164PpVQT5PEAw7zZa34GkAkFQ3daMN4P/WPcq9CAxGovbbgOSZAi0d6eG9m5qlCwheBkH329Azqe64IKRLC9pmXPBacFZVhMhBMaUE15TAQiiPRiQrMgRbA/2bT2VGSapQtD40O6dOvodbUW9M616MmG2zCi6ANipeDe/A9mHvZmUGxv6r6PcKBcNglZ9LtLomSz+T8FchUMyIVguRDnjtLY7n/lryQxM8U9ehlOVEgKSY940f/7Tf+Ig9DyOhfu6PPBFHlVK6RsvT3RmSgIAAA==';
 const FORMULA_BLOCK = 'H4sIAAAAAAAAA6tWMlSyqlYqUbIy0lEqU7IyNKitBQAlc/I2FAAAAA==';
 const CELL_BLOCK_ID = 'block_7684135929568627643_1888002616_28';
@@ -78,6 +79,20 @@ test('decodes sparse Feishu sheet cells, Unicode, formula results, and offscreen
   );
   assert.equal(decoded.formulaExpressionsMissing, 0);
   assert.deepEqual(decoded.unknownCellTypes, []);
+});
+
+test('treats explicit non-anchor cells in a merged range as structural blanks', () => {
+  const decoded = decodeCellBlock(MERGED_CELL_BLOCK, { 1: { t: 2, v: 10 } });
+  assert.deepEqual(decoded.unknownCellTypes, []);
+  assert.deepEqual(
+    decoded.cells.filter((cell) => ['F10', 'E11', 'F11'].includes(cell.address))
+      .map((cell) => ({ address: cell.address, type: cell.type, value: cell.value })),
+    [
+      { address: 'F10', type: 'blank', value: null },
+      { address: 'E11', type: 'blank', value: null },
+      { address: 'F11', type: 'blank', value: null },
+    ],
+  );
 });
 
 test('requires every declared cell and formula block before structured sheet evidence is complete', () => {

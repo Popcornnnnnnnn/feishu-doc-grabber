@@ -12,8 +12,8 @@ Local source files, generators, or setup notes do **not** count as live coverage
 | FG-04 | Long document and pagination | `live` | No |
 | FG-05 | Images with byte-fidelity checks | `live` | No |
 | FG-06 | Native attachments with byte-fidelity checks | `live` | No |
-| FG-07 | Native whole-document comments | `live` | No |
-| FG-08 | Embedded sheet, formula, Unicode, wide/offscreen cells | `live_fixture_incomplete` | No |
+| FG-07 | Native whole-document, anchored, replied, and resolved comments | `live` | No |
+| FG-08 | Embedded sheet, formula, merged range, Unicode, wide/offscreen cells | `live` | No |
 | FG-09 | Whiteboard with three shapes, two connectors, labels, Unicode text | `live` (`degraded`) | No |
 | FG-10 | Callout, checked/unchecked Todo, columns, quote container | `live` | No |
 
@@ -48,12 +48,12 @@ TEST_TENANT_HOST=<free-test-tenant> AI_CHROME_PORT=9223 node tools/whiteboard-ac
 
 The mutation scripts submit editor actions; the case is not accepted until a fresh export passes `tools/validate-corpus.mjs`. This keeps editor automation evidence separate from exporter evidence.
 
-FG-07 currently proves multiple native whole-document comments, including Unicode comment text. Feishu DOCX import does not preserve Word comments, so the three native comments are added after import in the isolated tenant. The exporter now distinguishes whole-document, anchored, replied, and resolved thread states and escapes comment HTML. Anchored text comments, reply threads, and resolved comments remain explicit live-corpus gaps; they are not counted as covered until a fresh isolated export reports positive counts for each state.
+FG-07 proves five native comment threads: three whole-document comments (including Unicode), two text-anchored comments, one reply, and one resolved thread. Feishu DOCX import does not preserve Word comments, so the native comments are added after import in the isolated tenant. Acceptance requires the exporter to preserve each thread state, its quoted anchor text, and escaped comment HTML.
 
 FG-05 verifies five exported image payloads by SHA-256, including a duplicate, a large PNG, a JPEG, and an SVG source imported through a deterministic PNG raster fallback. Native SVG upload remains an explicit gap.
 
 FG-06 uses native Feishu file blocks created through the hidden AI Chrome target. TXT, PDF, ZIP, Unicode filename, and no-extension payloads are each checked by filename and SHA-256 after export.
 
-FG-08 exports the declared Sheet cell blocks as a coordinate-preserving HTML table plus JSON sidecar, including the offscreen L12 tail, D2's computed value, and its `=SUM(C2:C4)` expression. The exporter also decodes merge mutations into `rowspan`/`colspan`. The current live fixture is intentionally marked `live_fixture_incomplete`: its saved resource snapshot contains the `MERGE-E10-F11` text but no actual merge mutation, so corpus validation now fails until the isolated test sheet is repaired and freshly exported. FG-09 intentionally remains `degraded`: it is a visual fallback and still lacks structured whiteboard export.
+FG-08 exports the declared Sheet cell blocks as a coordinate-preserving HTML table plus JSON sidecar, including the offscreen L12 tail, D2's computed value and `=SUM(C2:C4)` expression, plus the native `E10:F11` merged range represented as `rowspan`/`colspan`. FG-09 intentionally remains `degraded`: it is a visual fallback and still lacks structured whiteboard export.
 
 FG-10 proves the native block types currently supported by the SSR parser. A true nested quote, user mention, and bookmark card remain explicit gaps and are not counted as covered.

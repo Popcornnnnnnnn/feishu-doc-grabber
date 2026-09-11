@@ -116,36 +116,42 @@
     },
     {
       "id": "FG-07",
-      "title": "Native Whole-document Comments",
+      "title": "Native Comment Threads",
       "state": "live",
-      "setup": "drive_import_docx_then_native_whole_document_comments",
+      "setup": "drive_import_docx_then_native_comment_threads",
       "foregroundRequired": false,
       "source": "tests/generated/FG-07 Native Comments.docx",
       "generator": "tools/generate-comment-fixture.py (bundled workspace Python)",
-      "coverage": ["whole_document_comment", "multiple_threads", "unicode_comment"],
-      "remainingGaps": ["anchored_comment", "reply_thread", "resolved_comment"],
+      "coverage": ["whole_document_comment", "anchored_comment", "reply_thread", "resolved_comment", "multiple_threads", "unicode_comment"],
+      "remainingGaps": [],
       "expect": {
         "integrity": "complete",
         "sentinels": ["COMMENT-ANCHOR-A3", "COMMENT-ANCHOR-B7", "COMMENT-RESOLVED-C4", "COMMENT-END-E119"],
         "commentSentinels": [
           "Paragraph-level review note for COMMENT-ANCHOR-A3.",
           "Inline token review note.",
-          "评论正文 Ω alpha"
+          "评论正文 Ω alpha",
+          "COMMENT-ANCHOR-A3-THREAD-ROOT",
+          "COMMENT-ANCHOR-A3-THREAD-REPLY",
+          "COMMENT-RESOLVED-C4-THREAD"
         ],
-        "minCommentThreads": 3,
+        "minCommentThreads": 5,
+        "minAnchoredComments": 2,
+        "minCommentReplies": 1,
+        "minResolvedComments": 1,
         "minMarkdownBytes": 400
       }
     },
     {
       "id": "FG-08",
       "title": "Embedded Sheet",
-      "state": "live_fixture_incomplete",
+      "state": "live",
       "setup": "drive_import_then_background_native_sheet",
       "foregroundRequired": false,
       "source": "tests/source-docs/FG-08 Embedded Sheet.md",
       "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/expand-sheet-fixture-background.mjs + tools/set-sheet-cell-background.mjs",
-      "coverage": ["native_sheet", "wide_sheet", "formula_result", "unicode_cell", "structured_cell_export", "offscreen_tail", "json_sidecar"],
-      "remainingGaps": ["live_merged_cell_fixture_readback"],
+      "coverage": ["native_sheet", "wide_sheet", "formula_result", "unicode_cell", "structured_cell_export", "merged_cell", "offscreen_tail", "json_sidecar"],
+      "remainingGaps": [],
       "expect": {
         "integrity": "complete",
         "minBlocks": 7,
