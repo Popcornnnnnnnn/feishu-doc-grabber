@@ -37,7 +37,7 @@ Build the self-contained Apple Silicon app:
 open "dist/Feishu Grabber.app"
 ```
 
-The app accepts one or more Feishu/Lark links, shows the integrity result for each document, opens the local result page, and retries non-complete exports. `Log in to Feishu` is the only action that intentionally opens Chrome; normal exports use the isolated profile headlessly.
+The app accepts one or more Feishu/Lark links, confirms the saved sign-in state after login, shows the integrity result for each document, opens the local result page, and retries non-complete exports. `Log in to Feishu` is the only action that intentionally opens Chrome; normal exports use the isolated profile headlessly.
 
 Every batch also creates `index.html`, a local result page with per-document status and integrity details. Documents that did not reach `complete` are written to `retry-urls.txt` and can be rerun directly from the report:
 

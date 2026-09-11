@@ -39,6 +39,13 @@ struct IntegrityCheck: Decodable {
     let detail: String
 }
 
+enum AuthenticationState: Equatable {
+    case checking
+    case signedIn
+    case signedOut
+    case unknown
+}
+
 @MainActor
 final class ExportModel: ObservableObject, @unchecked Sendable {
     @Published var urlsText = ""
@@ -47,9 +54,13 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
     @Published var logText = ""
     @Published var message = "粘贴飞书文档链接即可开始"
     @Published var isRunning = false
+    @Published var isCheckingAuth = false
+    @Published var authState: AuthenticationState = .checking
     @Published var showLog = false
 
     private var activeProcess: Process?
+    private var authProbeProcess: Process?
+    private var authPollingTask: Task<Void, Never>?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
     private(set) var currentRunFolder: URL?
@@ -59,6 +70,9 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         outputBase = downloads.appendingPathComponent("Feishu Exports", isDirectory: true)
         try? FileManager.default.createDirectory(at: outputBase, withIntermediateDirectories: true)
+        Task { [weak self] in
+            await self?.checkAuthentication(showFeedback: false)
+        }
     }
 
     var retryCount: Int {
@@ -83,12 +97,25 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
 
     func login() {
         guard !isRunning else { return }
+        authPollingTask?.cancel()
+        authState = .checking
         message = "正在打开隔离的 Chrome 登录窗口…"
         launchNode(script: chromeScript, arguments: ["login"]) { [weak self] code in
             guard let self else { return }
-            self.message = code == 0
-                ? "请在 Chrome 中完成登录；登录后可直接返回这里导出"
-                : "登录窗口启动失败，请展开运行日志查看原因"
+            if code == 0 {
+                self.message = "请在 Chrome 中完成登录，完成后会自动确认"
+                self.beginLoginPolling()
+            } else {
+                self.authState = .unknown
+                self.message = "登录窗口启动失败，请展开运行日志查看原因"
+            }
+        }
+    }
+
+    func refreshAuthentication() {
+        authPollingTask?.cancel()
+        authPollingTask = Task { [weak self] in
+            await self?.checkAuthentication(showFeedback: true)
         }
     }
 
@@ -160,6 +187,17 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         engineRoot.appendingPathComponent("tools/ai-chrome.mjs")
     }
 
+    private func processEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Feishu Grabber", isDirectory: true)
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        environment["AI_CHROME_PROFILE"] = support.appendingPathComponent("Chrome Profile", isDirectory: true).path
+        environment["AI_CHROME_PORT"] = "9237"
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+        return environment
+    }
+
     private func parsedURLs() -> [String] {
         let allowed = ["feishu.cn", "larkoffice.com", "larksuite.com"]
         let values = urlsText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
@@ -209,6 +247,94 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         documents = report.documents
     }
 
+    private func beginLoginPolling() {
+        authPollingTask?.cancel()
+        authPollingTask = Task { [weak self] in
+            guard let self else { return }
+            self.isCheckingAuth = true
+            self.authState = .checking
+
+            for attempt in 0..<60 {
+                if Task.isCancelled {
+                    self.isCheckingAuth = false
+                    return
+                }
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+                if Task.isCancelled {
+                    self.isCheckingAuth = false
+                    return
+                }
+                let state = await self.probeAuthentication()
+                self.authProbeProcess = nil
+                if state == .signedIn {
+                    self.authState = .signedIn
+                    self.isCheckingAuth = false
+                    self.message = "登录成功，可以粘贴文档链接开始导出"
+                    return
+                }
+            }
+
+            self.authState = .unknown
+            self.isCheckingAuth = false
+            self.message = "没有自动确认登录状态，可点击状态标签重新检测"
+        }
+    }
+
+    private func checkAuthentication(showFeedback: Bool) async {
+        guard !isCheckingAuth else { return }
+        isCheckingAuth = true
+        authState = .checking
+        let state = await probeAuthentication()
+        authProbeProcess = nil
+        authState = state
+        isCheckingAuth = false
+        if showFeedback {
+            switch state {
+            case .signedIn:
+                message = "已登录，可以粘贴文档链接开始导出"
+            case .signedOut:
+                message = "尚未登录飞书"
+            case .unknown, .checking:
+                message = "暂时无法确认登录状态，请稍后重试"
+            }
+        }
+    }
+
+    private func probeAuthentication() async -> AuthenticationState {
+        guard FileManager.default.isExecutableFile(atPath: nodeExecutable.path),
+              FileManager.default.fileExists(atPath: chromeScript.path) else {
+            return .unknown
+        }
+
+        return await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = nodeExecutable
+            process.arguments = [chromeScript.path, "auth-status"]
+            process.currentDirectoryURL = engineRoot
+            process.environment = processEnvironment()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.terminationHandler = { task in
+                let state: AuthenticationState
+                switch task.terminationStatus {
+                case 0: state = .signedIn
+                case 3: state = .signedOut
+                default: state = .unknown
+                }
+                continuation.resume(returning: state)
+            }
+            authProbeProcess = process
+            do {
+                try process.run()
+            } catch {
+                authProbeProcess = nil
+                continuation.resume(returning: .unknown)
+            }
+        }
+    }
+
     private func launchNode(script: URL, arguments: [String], completion: @escaping (Int32) -> Void) {
         guard FileManager.default.isExecutableFile(atPath: nodeExecutable.path) else {
             message = "App 内缺少 Node 运行时，请重新构建或安装"
@@ -230,14 +356,7 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        var environment = ProcessInfo.processInfo.environment
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Feishu Grabber", isDirectory: true)
-        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        environment["AI_CHROME_PROFILE"] = support.appendingPathComponent("Chrome Profile", isDirectory: true).path
-        environment["AI_CHROME_PORT"] = "9237"
-        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
-        process.environment = environment
+        process.environment = processEnvironment()
 
         let consume: @Sendable (FileHandle) -> Void = { [weak self] handle in
             let data = handle.availableData
@@ -443,6 +562,26 @@ struct ContentView: View {
         Dictionary(grouping: model.documents, by: \.status).mapValues(\.count)
     }
 
+    private var accountStatusTitle: String {
+        if model.isRunning { return "正在运行" }
+        switch model.authState {
+        case .checking: return "检测登录"
+        case .signedIn: return "已登录"
+        case .signedOut: return "未登录"
+        case .unknown: return "待确认"
+        }
+    }
+
+    private var accountStatusColor: Color {
+        if model.isRunning { return AppTheme.cyan }
+        switch model.authState {
+        case .checking: return AppTheme.cyan
+        case .signedIn: return AppTheme.success
+        case .signedOut: return AppTheme.warning
+        case .unknown: return AppTheme.mutedText
+        }
+    }
+
     var body: some View {
         ZStack {
             AppTheme.canvas.ignoresSafeArea()
@@ -495,25 +634,33 @@ struct ContentView: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer()
-            HStack(spacing: 7) {
-                if model.isRunning {
-                    ProgressView().controlSize(.mini).tint(AppTheme.cyan)
-                } else {
-                    Circle().fill(AppTheme.success).frame(width: 6, height: 6)
+            Button { model.refreshAuthentication() } label: {
+                HStack(spacing: 7) {
+                    if model.isRunning || model.isCheckingAuth {
+                        ProgressView().controlSize(.mini).tint(accountStatusColor)
+                    } else {
+                        Circle().fill(accountStatusColor).frame(width: 6, height: 6)
+                    }
+                    Text(accountStatusTitle)
                 }
-                Text(model.isRunning ? "正在运行" : "本地模式")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(AppTheme.secondaryText)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(AppTheme.elevated.opacity(0.74), in: Capsule())
+                .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(AppTheme.secondaryText)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(AppTheme.elevated.opacity(0.74), in: Capsule())
-            .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
+            .buttonStyle(.plain)
+            .disabled(model.isRunning || model.isCheckingAuth)
+            .help("重新检测登录状态")
             Button { model.login() } label: {
-                Label("登录飞书", systemImage: "person.crop.circle")
+                Label(
+                    model.authState == .signedIn ? "重新登录" : "登录飞书",
+                    systemImage: model.authState == .signedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle"
+                )
             }
             .buttonStyle(SecondaryActionButtonStyle())
-                .disabled(model.isRunning)
+            .disabled(model.isRunning || model.isCheckingAuth)
         }
         .padding(.horizontal, 24)
         .padding(.top, 18)

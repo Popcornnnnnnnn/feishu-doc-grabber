@@ -16,7 +16,8 @@
  * 安装后可直接使用 feishu-chrome 命令。
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -71,6 +72,51 @@ export async function start({ silent = false, headed = false, initialUrl = 'abou
 /** 供脚本调用：确保实例在运行，无输出 */
 export async function ensureRunning() {
   return start({ silent: true });
+}
+
+/**
+ * Read only the presence and expiry of Feishu/Lark session markers.
+ * Cookie values remain encrypted and are never returned or logged.
+ */
+export function readAuthState(profile = AI_PROFILE) {
+  const candidates = [
+    join(profile, 'Default', 'Cookies'),
+    join(profile, 'Default', 'Network', 'Cookies'),
+  ];
+  const cookieDb = candidates.find((candidate) => existsSync(candidate));
+  if (!cookieDb) return { state: 'signed-out' };
+
+  const query = `
+    SELECT DISTINCT name
+    FROM cookies
+    WHERE (
+      host_key = 'feishu.cn' OR host_key LIKE '%.feishu.cn'
+      OR host_key = 'larksuite.com' OR host_key LIKE '%.larksuite.com'
+      OR host_key = 'larkoffice.com' OR host_key LIKE '%.larkoffice.com'
+    )
+      AND name IN ('session', 'session_list', 'sl_session')
+      AND (length(value) > 0 OR length(encrypted_value) > 0)
+      AND (
+        expires_utc = 0
+        OR expires_utc > (CAST(strftime('%s', 'now') AS INTEGER) + 11644473600) * 1000000
+      )
+    ORDER BY name;
+  `;
+  const result = spawnSync('/usr/bin/sqlite3', ['-readonly', cookieDb, query], {
+    encoding: 'utf8',
+    timeout: 3000,
+  });
+  if (result.error || result.status !== 0) return { state: 'unknown' };
+
+  const markers = new Set(result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean));
+  const authenticated = markers.has('session') && (markers.has('session_list') || markers.has('sl_session'));
+  return { state: authenticated ? 'signed-in' : 'signed-out' };
+}
+
+function authStatus() {
+  const result = readAuthState();
+  console.log(JSON.stringify(result));
+  return result;
 }
 
 async function status() {
@@ -130,9 +176,14 @@ const [cmd, ...rest] = process.argv.slice(2);
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
   const help = () =>
-    console.log(`用法: feishu-chrome <login|start|status|open <url>|stop|ensure>`);
+    console.log(`用法: feishu-chrome <login|auth-status|start|status|open <url>|stop|ensure>`);
   switch (cmd) {
     case 'login': await login(); break;
+    case 'auth-status': {
+      const result = authStatus();
+      process.exitCode = result.state === 'signed-in' ? 0 : result.state === 'signed-out' ? 3 : 4;
+      break;
+    }
     case 'start': await start(); break;
     case 'status': await status(); break;
     case 'open': rest[0] ? await open(rest[0]) : (console.log('缺少 URL'), help()); break;
