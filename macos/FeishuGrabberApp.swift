@@ -65,6 +65,10 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         documents.filter { $0.operationalStatus != "success" || $0.integrity.verdict != "complete" }.count
     }
 
+    var validURLCount: Int {
+        parsedURLs().count
+    }
+
     func chooseOutputFolder() {
         let panel = NSOpenPanel()
         panel.title = "Choose export folder"
@@ -275,10 +279,91 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
 
 private func statusColor(_ status: String) -> Color {
     switch status {
-    case "complete": return .green
-    case "degraded": return .orange
-    case "incomplete", "failed": return .red
-    default: return .secondary
+    case "complete": return AppTheme.success
+    case "degraded": return AppTheme.warning
+    case "incomplete", "failed": return AppTheme.danger
+    default: return AppTheme.mutedText
+    }
+}
+
+private func statusLabel(_ status: String) -> String {
+    switch status {
+    case "complete": return "完整"
+    case "degraded": return "降级"
+    case "incomplete": return "不完整"
+    case "failed": return "失败"
+    default: return status
+    }
+}
+
+private enum AppTheme {
+    static let canvas = Color(red: 0.035, green: 0.043, blue: 0.071)
+    static let panel = Color(red: 0.067, green: 0.078, blue: 0.118)
+    static let elevated = Color(red: 0.09, green: 0.104, blue: 0.153)
+    static let field = Color(red: 0.047, green: 0.055, blue: 0.086)
+    static let stroke = Color.white.opacity(0.09)
+    static let strongStroke = Color.white.opacity(0.16)
+    static let primaryText = Color.white.opacity(0.96)
+    static let secondaryText = Color.white.opacity(0.62)
+    static let mutedText = Color.white.opacity(0.42)
+    static let accent = Color(red: 0.47, green: 0.39, blue: 1.0)
+    static let cyan = Color(red: 0.12, green: 0.76, blue: 0.92)
+    static let success = Color(red: 0.27, green: 0.86, blue: 0.58)
+    static let warning = Color(red: 1.0, green: 0.68, blue: 0.24)
+    static let danger = Color(red: 1.0, green: 0.35, blue: 0.43)
+}
+
+struct PrimaryActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .frame(height: 42)
+            .background(
+                LinearGradient(
+                    colors: [AppTheme.accent, AppTheme.cyan],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+            .shadow(color: AppTheme.accent.opacity(0.24), radius: 14, y: 7)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+struct SecondaryActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(AppTheme.primaryText)
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(AppTheme.stroke, lineWidth: 1)
+            )
+            .opacity(configuration.isPressed ? 0.72 : 1)
+    }
+}
+
+struct FeatureBadge: View {
+    let icon: String
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).foregroundStyle(AppTheme.cyan)
+            Text(title).foregroundStyle(AppTheme.secondaryText)
+        }
+        .font(.system(size: 12, weight: .medium))
+        .padding(.horizontal, 11)
+        .frame(height: 30)
+        .background(AppTheme.elevated.opacity(0.72), in: Capsule())
+        .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
     }
 }
 
@@ -286,15 +371,24 @@ struct MetricView: View {
     let value: Int
     let title: String
     let color: Color
+    let icon: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(value)").font(.title2.bold()).foregroundStyle(color)
-            Text(title).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 30, height: 30)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(value)").font(.system(size: 19, weight: .bold)).foregroundStyle(AppTheme.primaryText)
+                Text(title).font(.caption).foregroundStyle(AppTheme.secondaryText)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+        .background(AppTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(AppTheme.stroke, lineWidth: 1))
     }
 }
 
@@ -303,24 +397,42 @@ struct DocumentRow: View {
     let open: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle().fill(statusColor(document.status)).frame(width: 9, height: 9).padding(.top, 6)
+        HStack(alignment: .center, spacing: 13) {
+            Image(systemName: document.status == "complete" ? "checkmark" : "exclamationmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(statusColor(document.status))
+                .frame(width: 28, height: 28)
+                .background(statusColor(document.status).opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 5) {
-                Text(document.displayName).font(.headline).lineLimit(1)
-                Text(document.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(document.displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .lineLimit(1)
+                Text(document.detail)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineLimit(2)
             }
             Spacer()
-            Text(document.status.uppercased())
-                .font(.caption2.bold()).foregroundStyle(statusColor(document.status))
+            Text(statusLabel(document.status))
+                .font(.caption.weight(.semibold)).foregroundStyle(statusColor(document.status))
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .background(statusColor(document.status).opacity(0.12), in: Capsule())
             if document.output != nil {
-                Button("Open", action: open).buttonStyle(.borderless)
+                Button(action: open) {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .frame(width: 28, height: 28)
+                        .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .help("打开导出文件")
             }
         }
-        .padding(12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.7)))
+        .padding(13)
+        .background(AppTheme.field, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.stroke, lineWidth: 1))
     }
 }
 
@@ -332,20 +444,39 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    inputSection
-                    if !model.documents.isEmpty { resultsSection }
-                    logSection
+        ZStack {
+            AppTheme.canvas.ignoresSafeArea()
+            RadialGradient(
+                colors: [AppTheme.accent.opacity(0.12), .clear],
+                center: .topLeading,
+                startRadius: 10,
+                endRadius: 520
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        hero
+                        inputSection
+                        if model.documents.isEmpty {
+                            capabilitySection
+                        } else {
+                            resultsSection
+                        }
+                        logSection
+                    }
+                    .frame(maxWidth: 920)
+                    .padding(.horizontal, 34)
+                    .padding(.top, 30)
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(24)
             }
         }
-        .frame(minWidth: 760, minHeight: 650)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 820, minHeight: 650)
+        .preferredColorScheme(.dark)
     }
 
     private var header: some View {
@@ -353,104 +484,236 @@ struct ContentView: View {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 42, height: 42)
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Feishu Grabber").font(.title2.bold())
-                Text(model.message).font(.caption).foregroundStyle(.secondary)
+                Text("Feishu Grabber")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(AppTheme.primaryText)
+                Text("本地完整性导出")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
             }
             Spacer()
-            if model.isRunning { ProgressView().controlSize(.small) }
-            Button("Log in to Feishu") { model.login() }
+            HStack(spacing: 7) {
+                if model.isRunning {
+                    ProgressView().controlSize(.mini).tint(AppTheme.cyan)
+                } else {
+                    Circle().fill(AppTheme.success).frame(width: 6, height: 6)
+                }
+                Text(model.isRunning ? "正在运行" : "本地模式")
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(AppTheme.secondaryText)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(AppTheme.elevated.opacity(0.74), in: Capsule())
+            .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
+            Button { model.login() } label: {
+                Label("登录飞书", systemImage: "person.crop.circle")
+            }
+            .buttonStyle(SecondaryActionButtonStyle())
                 .disabled(model.isRunning)
         }
-        .padding(.horizontal, 24).padding(.vertical, 16)
+        .padding(.horizontal, 24)
+        .padding(.top, 18)
+        .padding(.bottom, 13)
+        .background(AppTheme.canvas.opacity(0.9))
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.stroke).frame(height: 1) }
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("把飞书文档，完整带回本地。")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(AppTheme.primaryText)
+            Text("批量导出正文、表格、评论和附件，并明确告诉你哪些内容完整、哪些还需要处理。")
+                .font(.system(size: 14))
+                .foregroundStyle(AppTheme.secondaryText)
+        }
     }
 
     private var inputSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Document links").font(.headline)
-            TextEditor(text: $model.urlsText)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .frame(height: 118)
-                .background(.background, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.separator))
-            Text("Paste one or more Feishu/Lark links, separated by spaces or new lines.")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Image(systemName: "folder").foregroundStyle(.secondary)
-                Text(model.outputBase.path).lineLimit(1).truncationMode(.middle)
-                    .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center) {
+                Text("01")
+                    .font(.caption2.bold())
+                    .foregroundStyle(AppTheme.cyan)
+                    .frame(width: 28, height: 22)
+                    .background(AppTheme.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                Text("添加文档")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(AppTheme.primaryText)
                 Spacer()
-                Button("Choose folder") { model.chooseOutputFolder() }
+                if model.validURLCount > 0 {
+                    Text("已识别 \(model.validURLCount) 个链接")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(AppTheme.success)
+                }
+            }
+
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $model.urlsText)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(AppTheme.primaryText)
+                    .scrollContentBackground(.hidden)
+                    .padding(11)
+                if model.urlsText.isEmpty {
+                    Text("粘贴一个或多个飞书 / Lark 文档链接…")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(AppTheme.mutedText)
+                        .padding(.leading, 16)
+                        .padding(.top, 18)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(height: 132)
+            .background(AppTheme.field, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(model.validURLCount > 0 ? AppTheme.cyan.opacity(0.48) : AppTheme.strongStroke, lineWidth: 1)
+            )
+
+            HStack {
+                Image(systemName: "externaldrive.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppTheme.cyan)
+                    .frame(width: 30, height: 30)
+                    .background(AppTheme.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("保存位置").font(.caption2).foregroundStyle(AppTheme.mutedText)
+                    Text(model.outputBase.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                Button("更改") { model.chooseOutputFolder() }
+                    .buttonStyle(SecondaryActionButtonStyle())
                     .disabled(model.isRunning)
             }
+
             HStack {
                 if model.isRunning {
-                    Button("Cancel", role: .destructive) { model.cancel() }
+                    Button("取消导出", role: .destructive) { model.cancel() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppTheme.danger)
+                } else {
+                    HStack(spacing: 7) {
+                        Image(systemName: "info.circle")
+                        Text(model.message).lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
                 }
                 Spacer()
                 Button {
                     model.export()
                 } label: {
-                    Label(model.isRunning ? "Exporting…" : "Export", systemImage: "arrow.down.doc.fill")
+                    Label(
+                        model.isRunning ? "正在导出…" : (model.validURLCount > 1 ? "导出 \(model.validURLCount) 个文档" : "开始导出"),
+                        systemImage: "arrow.down.doc.fill"
+                    )
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(model.isRunning)
+                .buttonStyle(PrimaryActionButtonStyle())
+                .disabled(model.isRunning || model.validURLCount == 0)
+                .opacity(model.isRunning || model.validURLCount == 0 ? 0.42 : 1)
             }
         }
-        .padding(18)
-        .background(.quaternary.opacity(0.28), in: RoundedRectangle(cornerRadius: 14))
+        .padding(20)
+        .background(AppTheme.panel.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.stroke, lineWidth: 1))
+        .shadow(color: .black.opacity(0.2), radius: 28, y: 16)
+    }
+
+    private var capabilitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("关键结构，都有明确检查")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+            HStack(spacing: 8) {
+                FeatureBadge(icon: "text.alignleft", title: "富文本")
+                FeatureBadge(icon: "tablecells", title: "表格")
+                FeatureBadge(icon: "bubble.left.and.bubble.right", title: "评论")
+                FeatureBadge(icon: "paperclip", title: "附件")
+                FeatureBadge(icon: "checkmark.shield", title: "完整性报告")
+            }
+            HStack(spacing: 9) {
+                Image(systemName: "moon.zzz.fill").foregroundStyle(AppTheme.accent)
+                Text("普通导出使用隔离浏览器配置在后台运行；只有首次登录会打开 Chrome。")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .padding(.top, 2)
+        }
     }
 
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Results").font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("导出结果").font(.system(size: 16, weight: .semibold)).foregroundStyle(AppTheme.primaryText)
+                    Text(model.message).font(.caption).foregroundStyle(AppTheme.secondaryText)
+                }
                 Spacer()
-                Button("Open results") { model.openResultPage() }
-                Button("Show in Finder") { model.openOutputFolder() }
+                Button { model.openResultPage() } label: { Label("结果页", systemImage: "safari") }
+                    .buttonStyle(SecondaryActionButtonStyle())
+                Button { model.openOutputFolder() } label: { Label("在 Finder 中显示", systemImage: "folder") }
+                    .buttonStyle(SecondaryActionButtonStyle())
             }
             HStack(spacing: 10) {
-                MetricView(value: counts["complete", default: 0], title: "Complete", color: .green)
-                MetricView(value: counts["degraded", default: 0], title: "Degraded", color: .orange)
-                MetricView(value: counts["incomplete", default: 0], title: "Incomplete", color: .red)
-                MetricView(value: counts["failed", default: 0], title: "Failed", color: .red)
+                MetricView(value: counts["complete", default: 0], title: "完整", color: AppTheme.success, icon: "checkmark")
+                MetricView(value: counts["degraded", default: 0], title: "降级", color: AppTheme.warning, icon: "minus")
+                MetricView(value: counts["incomplete", default: 0], title: "不完整", color: AppTheme.danger, icon: "exclamationmark")
+                MetricView(value: counts["failed", default: 0], title: "失败", color: AppTheme.danger, icon: "xmark")
             }
             ForEach(model.documents) { document in
                 DocumentRow(document: document) { model.openOutput(document) }
             }
             if model.retryCount > 0 {
                 HStack {
-                    Text("\(model.retryCount) document(s) did not reach complete.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("有 \(model.retryCount) 个文档尚未达到完整状态")
+                        .font(.caption).foregroundStyle(AppTheme.secondaryText)
                     Spacer()
-                    Button("Retry incomplete") { model.retry() }
-                        .buttonStyle(.borderedProminent)
+                    Button { model.retry() } label: { Label("重试未完成项", systemImage: "arrow.clockwise") }
+                        .buttonStyle(PrimaryActionButtonStyle())
                         .disabled(model.isRunning)
                 }
                 .padding(.top, 4)
             }
         }
+        .padding(20)
+        .background(AppTheme.panel.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.stroke, lineWidth: 1))
     }
 
     private var logSection: some View {
-        DisclosureGroup("Run log", isExpanded: $model.showLog) {
+        DisclosureGroup(isExpanded: $model.showLog) {
             ScrollView {
-                Text(model.logText.isEmpty ? "No output yet." : model.logText)
+                Text(model.logText.isEmpty ? "暂无运行日志。" : model.logText)
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(12)
             }
             .frame(maxHeight: 180)
-            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 8))
-            .foregroundStyle(.white.opacity(0.9))
+            .background(Color.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 10))
+            .foregroundStyle(AppTheme.secondaryText)
             .padding(.top, 8)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "terminal")
+                Text("运行日志")
+                if !model.logText.isEmpty {
+                    Circle().fill(AppTheme.cyan).frame(width: 5, height: 5)
+                }
+            }
         }
-        .font(.caption)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(AppTheme.mutedText)
+        .tint(AppTheme.mutedText)
     }
 }
 
@@ -475,7 +738,7 @@ struct FeishuGrabberApp: App {
             ContentView()
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 860, height: 760)
+        .defaultSize(width: 960, height: 680)
         .commands {
             CommandGroup(replacing: .newItem) { }
         }

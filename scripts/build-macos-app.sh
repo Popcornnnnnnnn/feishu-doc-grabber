@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
-app_path="$root_dir/dist/FeishuGrabber.app"
+app_path="$root_dir/dist/Feishu Grabber.app"
 contents="$app_path/Contents"
 resources="$contents/Resources"
 engine="$resources/engine"
@@ -12,7 +12,7 @@ iconset="$build_dir/AppIcon.iconset"
 
 if [[ -e "$app_path" ]]; then
   case "$app_path" in
-    "$root_dir/dist/FeishuGrabber.app") /bin/rm -rf -- "$app_path" ;;
+    "$root_dir/dist/Feishu Grabber.app") /bin/rm -rf -- "$app_path" ;;
     *) echo "Refusing to replace unexpected path: $app_path" >&2; exit 2 ;;
   esac
 fi

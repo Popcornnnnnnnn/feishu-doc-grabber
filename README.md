@@ -34,7 +34,7 @@ Build the self-contained Apple Silicon app:
 
 ```bash
 ./scripts/build-macos-app.sh
-open dist/FeishuGrabber.app
+open "dist/Feishu Grabber.app"
 ```
 
 The app accepts one or more Feishu/Lark links, shows the integrity result for each document, opens the local result page, and retries non-complete exports. `Log in to Feishu` is the only action that intentionally opens Chrome; normal exports use the isolated profile headlessly.
