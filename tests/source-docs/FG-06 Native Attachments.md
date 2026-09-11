@@ -1,8 +1,8 @@
-# FG-06 Attachments
+# FG-06 Native Attachments
 
 ATTACH-TOP-7AC2
 
-Insert the five deterministic payloads from `tests/generated/attachments/` below this line:
+The five deterministic payloads are inserted as native Feishu file blocks before the final sentinel:
 
 1. `fixture.txt`
 2. `fixture.pdf`

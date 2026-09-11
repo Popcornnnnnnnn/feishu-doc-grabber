@@ -66,30 +66,51 @@
     {
       "id": "FG-05",
       "title": "Images",
-      "state": "local_assets_ready",
-      "setup": "native_media_insert",
-      "foregroundRequired": true,
-      "source": "tests/source-docs/FG-05 Images.md",
-      "coverage": ["png", "jpeg", "svg", "duplicate_image", "unicode_alt", "large_image"],
+      "state": "live",
+      "setup": "drive_import_docx",
+      "foregroundRequired": false,
+      "source": "tests/generated/FG-05 Images.docx",
+      "generator": "tools/generate-image-fixture.py (bundled workspace Python)",
+      "coverage": ["png", "jpeg", "svg_source_raster_fallback", "duplicate_image", "unicode_alt", "large_image", "byte_fidelity"],
+      "remainingGaps": ["native_svg_upload"],
       "expect": {
         "integrity": "complete",
+        "minBlocks": 20,
+        "requiredBlockTypes": ["page", "image", "heading1", "text"],
         "sentinels": ["IMAGE-TOP-A62C", "IMAGE-END-B8E4"],
         "media": { "images": 5 },
+        "assetSha256": [
+          "d89328716e3742b09ee022dfd3e5aa2a79c63292dd58632997b1c84f3331ca15",
+          "fb8273ba4079ce40b6e5be7d3d5dbd7ad7ca6a6f83e8fa31192441034d3440b7",
+          "68287b3cf45dae0580c8da567a0d1302c528e6ca9b1ff4025f82af304e8ebd9b",
+          "d89328716e3742b09ee022dfd3e5aa2a79c63292dd58632997b1c84f3331ca15",
+          "f0039d3725b01f745537a2441893f90d825ed520b690376a6bbafcde733cd2cf"
+        ],
         "minMarkdownBytes": 200
       }
     },
     {
       "id": "FG-06",
-      "title": "Attachments",
-      "state": "local_assets_ready",
-      "setup": "native_media_insert",
-      "foregroundRequired": true,
-      "source": "tests/source-docs/FG-06 Attachments.md",
-      "coverage": ["txt_attachment", "pdf_attachment", "zip_attachment", "unicode_filename", "no_extension"],
+      "title": "Native Attachments",
+      "state": "live",
+      "setup": "drive_import_docx_then_native_file_blocks",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-06 Native Attachments.md",
+      "generator": "node tools/generate-corpus-assets.mjs",
+      "coverage": ["txt_attachment", "pdf_attachment", "zip_attachment", "unicode_filename", "no_extension", "byte_fidelity"],
       "expect": {
         "integrity": "complete",
+        "minBlocks": 25,
+        "requiredBlockTypes": ["page", "view", "file", "heading1", "text"],
         "sentinels": ["ATTACH-TOP-7AC2", "ATTACH-END-36D9"],
         "media": { "attachments": 5 },
+        "attachmentSha256": {
+          "fixture.txt": "1bbd49e13ef197d445a7c7091b08817f21070792f29f038fd23eb38f78e29528",
+          "fixture.pdf": "908e8fba811f3370d97ad95f79bf1fc18d53f14be039ebaf135b1c49ed15d069",
+          "fixture.zip": "2b9eb337c5497127756e1e65cf501d6e4a840980e840b412e70d6ef366ebc516",
+          "中文附件-Ω.txt": "b6c01818e02cf528f008178f90fdcb25141c9f6adab0579e07fe50da02a24df8",
+          "NO_EXTENSION": "36c14588c04674cc43a7d03163ecdfeed7860f427d38e0f27fb18175bbcfdcfa"
+        },
         "minMarkdownBytes": 200
       }
     },

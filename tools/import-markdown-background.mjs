@@ -55,6 +55,10 @@ async function rectForText(page, text) {
 }
 
 async function rectForAnyText(page, texts) {
+  await page.waitForFunction((choices) => [...document.querySelectorAll('body *')].some((element) => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && choices.includes((element.innerText || '').trim());
+  }), { timeout: 10000 }, texts).catch(() => {});
   for (const candidate of texts) {
     const rect = await rectForText(page, candidate);
     if (rect) return rect;

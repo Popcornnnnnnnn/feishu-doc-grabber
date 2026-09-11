@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blockMapToMarkdown } from '../lib/ssr.mjs';
+import { blockMapToMarkdown, clientVarsDataToMarkdown } from '../lib/ssr.mjs';
 
 const text = (value, parent) => ({
   id: `text-${value}`,
@@ -54,4 +54,23 @@ test('native table follows row and column ids and preserves merged cells', () =>
   assert.match(markdown, /<td>A1<\/td>/);
   assert.match(markdown, /<td>B1<\/td>/);
   assert.match(markdown, /<td colspan="2">MERGED-C2<\/td>/);
+});
+
+test('file card view wrapper is recognized and renders its file child', () => {
+  const blockMap = {
+    page: { id: 'page', data: { type: 'page', children: ['view'] } },
+    view: { id: 'view', data: { type: 'view', parent_id: 'page', view_type: 'Card', children: ['file'] } },
+    file: {
+      id: 'file',
+      data: {
+        type: 'file',
+        parent_id: 'view',
+        children: [],
+        file: { token: 'fixture-token', name: 'fixture.txt', size: 21 },
+      },
+    },
+  };
+  const parsed = clientVarsDataToMarkdown({ block_map: blockMap, meta_map: {} });
+  assert.match(parsed.markdown, /fixture\.txt/);
+  assert.equal(parsed.stats.unknownBlocks, 0);
 });

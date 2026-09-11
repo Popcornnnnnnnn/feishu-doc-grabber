@@ -25,6 +25,7 @@ import {
 } from './lib/ssr.mjs';
 import { evaluateIntegrity } from './lib/integrity.mjs';
 import { collectCommentIds } from './lib/comments.mjs';
+import { validateDownloadedPayload } from './lib/media.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
@@ -183,9 +184,8 @@ async function downloadImages(browser, pageUrl, images, assetsDir, urlPrefixRewr
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const buf = Buffer.from(await r.arrayBuffer());
       if (buf.length > 30 * 1024 * 1024) continue;
-      const type = r.headers.get('content-type') || 'image/png';
-      const ext = type.includes('jpeg') ? 'jpg' : type.includes('webp') ? 'webp'
-        : type.includes('gif') ? 'gif' : type.includes('svg') ? 'svg' : 'png';
+      const type = r.headers.get('content-type') || '';
+      const { extension: ext } = validateDownloadedPayload(buf, { kind: 'image', contentType: type });
       const name = createHash('md5').update(src).digest('hex').slice(0, 12) + '.' + ext;
       writeFileSync(join(assetsDir, name), buf);
       map.set(src, join(urlPrefixRewrite, name));
@@ -401,16 +401,20 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
   const referer = url;
   const map = new Map(); // 占位符 -> 相对路径
-  const dl = async (endpoint, token, blockId) => {
+  const dl = async (endpoint, token, blockId, kind) => {
     const r = await fetch(`https://${streamHost}/space/api/box/stream/download/${endpoint}/${token}/?mount_node_token=${blockId}&policy=equal`,
       { headers: { cookie, 'user-agent': UA, referer } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return Buffer.from(await r.arrayBuffer());
+    const buf = Buffer.from(await r.arrayBuffer());
+    const validated = validateDownloadedPayload(buf, {
+      kind,
+      contentType: r.headers.get('content-type') || '',
+    });
+    return { buf, ...validated };
   };
   for (const img of images) {
     try {
-      const buf = await dl('v2/cover', img.token, img.blockId);
-      const ext = (img.mime.includes('jpeg') ? 'jpg' : img.mime.includes('webp') ? 'webp' : img.mime.includes('gif') ? 'gif' : 'png');
+      const { buf, extension: ext } = await dl('all', img.token, img.blockId, 'image');
       const file = `${img.token.slice(0, 16)}.${ext}`;
       writeFileSync(join(assetsDir, file), buf);
       map.set(`ssrimg://${img.token}/${img.blockId}`, `assets/${file}`);
@@ -419,7 +423,7 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   }
   for (const f of files) {
     try {
-      const buf = await dl('all', f.token, f.blockId);
+      const { buf } = await dl('all', f.token, f.blockId, 'file');
       const name = safeName(f.name) || f.token;
       let file = name, n = 1;
       while (existsSync(join(outDir, file))) file = name.replace(/(\.[^.]*)?$/, m => ` (${n++})${m ?? ''}`);
