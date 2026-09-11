@@ -54,6 +54,6 @@ FG-05 verifies five exported image payloads by SHA-256, including a duplicate, a
 
 FG-06 uses native Feishu file blocks created through the hidden AI Chrome target. TXT, PDF, ZIP, Unicode filename, and no-extension payloads are each checked by filename and SHA-256 after export.
 
-FG-08 and FG-09 intentionally validate as `degraded`: their native canvas blocks are present and their background screenshots are exported, but a visual fallback cannot prove structured or offscreen completeness. FG-08 still lacks merged-cell readback and full structured sheet export. FG-09 still lacks structured whiteboard export.
+FG-08 and FG-09 intentionally validate as `degraded`. FG-08 now exports the declared Sheet cell blocks as a coordinate-preserving HTML table plus JSON sidecar, including the offscreen L12 tail and D2's computed value. It remains degraded because the formula expression itself is not yet decoded, and the merged-cell fixture still lacks structural readback. FG-09 remains a visual fallback and still lacks structured whiteboard export.
 
 FG-10 proves the native block types currently supported by the SSR parser. A true nested quote, user mention, and bookmark card remain explicit gaps and are not counted as covered.

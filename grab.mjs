@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * feishu-doc-grabber
  *
@@ -26,6 +27,7 @@ import {
 import { evaluateIntegrity } from './lib/integrity.mjs';
 import { collectCommentIds } from './lib/comments.mjs';
 import { validateDownloadedPayload } from './lib/media.mjs';
+import { decodeSheetClientVars, parseEmbeddedSheetRef, sheetBlockRequirements } from './lib/sheet.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
@@ -438,6 +440,77 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   return map;
 }
 
+async function fetchStructuredSheetsDirect(browser, url, requestedSheets) {
+  const cookies = await getCookiesFor(browser, [url]);
+  const cookie = cookies.map((item) => `${item.name}=${item.value}`).join('; ');
+  const csrf = cookies.find((item) => item.name === '_csrf_token')?.value || '';
+  const headers = {
+    accept: 'application/json, text/plain, */*',
+    'content-type': 'application/json',
+    cookie,
+    referer: url,
+    'user-agent': UA,
+    'x-csrftoken': csrf,
+  };
+  const results = [];
+  for (const requested of requestedSheets) {
+    try {
+      const ref = parseEmbeddedSheetRef(requested.token);
+      let sheetId = ref.sheetId;
+      if (!sheetId) {
+        const resourceResponse = await fetch(new URL('/space/api/v3/sheet/resource/', url), {
+          method: 'POST', headers,
+          body: JSON.stringify({ path: ['comments'], token: ref.token, sheetIDs: [] }),
+        });
+        const resourcePayload = await resourceResponse.json();
+        const sheetIds = Object.keys(resourcePayload?.data?.resource ?? {});
+        if (!resourceResponse.ok || resourcePayload?.code !== 0 || sheetIds.length !== 1) {
+          throw new Error(`Sheet resource lookup failed (HTTP ${resourceResponse.status}, code ${resourcePayload?.code}, ids ${sheetIds.length})`);
+        }
+        sheetId = sheetIds[0];
+      }
+      const clientResponse = await fetch(new URL('/space/api/v3/sheet/client_vars', url), {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          memberId: 0, schemaVersion: 9, openType: 1, token: ref.token,
+          sheetRange: { sheetId }, clientVersion: 'v0.0.1',
+        }),
+      });
+      const payload = await clientResponse.json();
+      if (!clientResponse.ok || payload?.code !== 0 || payload?.data?.token !== ref.token) {
+        throw new Error(`Sheet client_vars failed (HTTP ${clientResponse.status}, code ${payload?.code})`);
+      }
+      const formulaPayloads = [];
+      for (const blockId of sheetBlockRequirements(payload).formulaBlockIds) {
+        const formulaUrl = new URL('/space/api/v3/sheet/formula/data_block', url);
+        formulaUrl.searchParams.set('token', ref.token);
+        formulaUrl.searchParams.set('block_token', blockId);
+        formulaUrl.searchParams.set('blockIds', blockId);
+        const formulaResponse = await fetch(formulaUrl, { headers });
+        if (!formulaResponse.ok) throw new Error(`Formula block failed (HTTP ${formulaResponse.status})`);
+        const formulaPayload = await formulaResponse.json();
+        if (formulaPayload?.code !== 0) throw new Error(`Formula block failed (code ${formulaPayload?.code})`);
+        formulaPayloads.push(formulaPayload);
+      }
+      const sheet = decodeSheetClientVars(payload, formulaPayloads);
+      sheet.sourceToken = requested.token;
+      results.push({ requested, sheet });
+    } catch (error) {
+      results.push({ requested, error: error.message });
+    }
+  }
+  return results;
+}
+
+/**
+ * Embedded Sheet data is absent from the parent document SSR. Read the Sheet
+ * client_vars and every declared cell/formula block with the browser's login
+ * cookies, without foreground activation, mouse input, or OCR.
+ */
+async function captureStructuredSheets(browser, url, requestedSheets) {
+  return fetchStructuredSheetsDirect(browser, url, requestedSheets);
+}
+
 // ---------- Phase B: Markdown / HTML ----------
 
 async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) {
@@ -474,9 +547,33 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       const title = safeName(rawTitle).replace(/ - (飞书云文档|Feishu Docs|飞书)$/, '');
       const file = join(outDir, `${title}.md`);
       const parts = parsed.blocks ?? [{ id: null, md: parsed.markdown }];
-      const sheetFallbacks = parsed.sheetFallbacks || [];
+      let sheetFallbacks = parsed.sheetFallbacks || [];
+      let structuredSheets = [];
+      if (parsed.sheets.length) {
+        console.log(`→ 后台读取 ${parsed.sheets.length} 个 Sheet 的结构化数据…`);
+        structuredSheets = await captureStructuredSheets(browser, canonUrl, parsed.sheets, timeoutMs);
+        for (const result of structuredSheets) {
+          if (!result.sheet?.structuredComplete) {
+            console.warn(`  ⚠ ${result.requested.token.slice(0, 8)}: ${result.error || 'declared Sheet blocks are incomplete'}`);
+            continue;
+          }
+          const item = parsed.sheets.find((sheet) => sheet.token === result.requested.token);
+          if (!item) continue;
+          const placeholder = `![表格](ssrsheet://${item.token}/${item.blockId})`;
+          const part = parts.find((entry) => entry.id === item.blockId);
+          if (part && !part.md.includes(placeholder)) part.md = result.sheet.markdown;
+          else for (const entry of parts) entry.md = entry.md.split(placeholder).join(result.sheet.markdown);
+          const sidecar = `sheet-${structuredSheets.indexOf(result) + 1}.json`;
+          mkdirSync(join(outDir, 'assets'), { recursive: true });
+          const { markdown: _markdown, token: _token, sourceToken: _sourceToken, ...sheetData } = result.sheet;
+          writeFileSync(join(outDir, 'assets', sidecar), JSON.stringify(sheetData, null, 2));
+          console.log(`  ▦ ${result.sheet.sheetId}: ${result.sheet.cells.length} 个非空单元格 → assets/${sidecar}`);
+        }
+        const completeTokens = new Set(structuredSheets.filter((item) => item.sheet?.structuredComplete).map((item) => item.requested.token));
+        sheetFallbacks = sheetFallbacks.filter((item) => !completeTokens.has(item.token));
+      }
       const sheetsNeedShot = sheetFallbacks.length > 0;
-      if (sheetsNeedShot) console.log(`⚠ ${sheetFallbacks.length} 个 sheet SVG 不可解析，将走后台截图兜底`);
+      if (sheetsNeedShot) console.log(`⚠ ${sheetFallbacks.length} 个 Sheet 结构化读取不完整，将走后台截图兜底`);
       // 评论线程（锚点 → 顶层块）
       let threads = [];
       let commentStatus = objToken ? 'checked' : 'unknown';
@@ -552,6 +649,11 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           images: { expected: parsed.images.length, exported: imageCount },
           attachments: { expected: parsed.files.length, exported: attachmentCount },
           whiteboards: { expected: parsed.whiteboards.length, exported: whiteboardCount },
+          structuredSheets: {
+            expected: parsed.sheets.length,
+            exported: structuredSheets.filter((item) => item.sheet?.structuredComplete).length,
+            formulaExpressionsMissing: structuredSheets.reduce((sum, item) => sum + Number(item.sheet?.formulaExpressionsMissing || 0), 0),
+          },
           sheetFallbacks: { expected: sheetFallbacks.length, exported: sheetFallbackCount },
         },
         comments: { status: commentStatus, threads: threads.length, error: commentError },

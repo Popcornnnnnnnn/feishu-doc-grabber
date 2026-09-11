@@ -13,13 +13,14 @@ An export is not considered complete merely because a file was written. Every ru
 | Body | Non-empty extracted body | Empty body is incomplete |
 | Pagination | SSR explicitly reports `has_more = false` | Unknown is degraded; `has_more = true` is incomplete |
 | Images and attachments | Exported count equals detected count | Any missing resource is incomplete |
+| Structured sheets | Every declared cell/formula block is decoded and the computed values are exported | Missing blocks are incomplete; unavailable formula expressions are degraded even when computed values are preserved |
 | Whiteboards and sheet fallbacks | No visual fallback is required | A complete screenshot set is degraded because structured/offscreen completeness is unproven; a missing screenshot is incomplete |
 | Comments | Comment endpoints were checked successfully | Unavailable or failed check is degraded |
 | Block recognition | No unknown DOM block signatures | Unknown signatures are degraded |
 
 ## Background behavior
 
-The default mode never brings Chrome to the foreground. Canvas-only whiteboards and sheet fallbacks are captured in hidden Chrome targets with focus emulation and exact block targeting. Successful screenshots remain `degraded` evidence rather than `complete`; `--allow-focus` is retained only as a compatibility flag.
+The default mode never brings Chrome to the foreground. Embedded sheets are read directly from authenticated `client_vars`, cell-block, and formula-block responses. Canvas-only whiteboards and unresolved sheet fallbacks are captured in hidden Chrome targets with focus emulation and exact block targeting. Successful screenshots remain `degraded` evidence rather than `complete`; `--allow-focus` is retained only as a compatibility flag.
 
 ## Process exit codes
 

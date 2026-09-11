@@ -144,15 +144,29 @@
       "foregroundRequired": false,
       "source": "tests/source-docs/FG-08 Embedded Sheet.md",
       "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/expand-sheet-fixture-background.mjs + tools/set-sheet-cell-background.mjs",
-      "coverage": ["native_sheet", "wide_sheet", "formula", "unicode_cell", "partial_view_detection", "screenshot_fallback"],
-      "remainingGaps": ["merged_cell_readback", "structured_full_sheet_export", "fallback_offscreen_tail"],
+      "coverage": ["native_sheet", "wide_sheet", "formula_result", "unicode_cell", "structured_cell_export", "offscreen_tail", "json_sidecar"],
+      "remainingGaps": ["formula_expression_export", "merged_cell_readback"],
       "expect": {
         "integrity": "degraded",
         "minBlocks": 7,
         "requiredBlockTypes": ["page", "sheet", "heading1", "text"],
         "sentinels": ["SHEET-A1-31CF", "SHEET-END-911B"],
-        "media": { "sheetFallbacks": 1 },
-        "minMarkdownBytes": 350
+        "media": { "structuredSheets": 1, "sheetFallbacks": 0 },
+        "structuredSheet": {
+          "asset": "sheet-1.json",
+          "formulaExpressionsMissing": 1,
+          "cells": {
+            "A1": "ID",
+            "B2": "表格 Ω 行 | SHEET-CELL-DATA-B2-8E4C",
+            "C2": 2,
+            "D2": 10,
+            "C3": 3,
+            "C4": 5,
+            "E10": "MERGE-E10-F11",
+            "L12": "SHEET-TAIL-L12-377"
+          }
+        },
+        "minMarkdownBytes": 700
       }
     },
     {

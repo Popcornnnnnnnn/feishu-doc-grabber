@@ -69,6 +69,23 @@ for (const [kind, count] of Object.entries(expected.media || {})) {
   check(Number(evidence.media?.[kind]?.exported || 0) === count,
     `${kind} exported count is ${evidence.media?.[kind]?.exported || 0}, expected ${count}`);
 }
+if (expected.structuredSheet) {
+  try {
+    const sidecar = JSON.parse(readFileSync(join(exportDir, 'assets', expected.structuredSheet.asset), 'utf8'));
+    check(sidecar.structuredComplete === true, 'structured Sheet sidecar is not complete');
+    check((sidecar.missingBlocks || []).length === 0, 'structured Sheet has missing blocks');
+    check((sidecar.unknownCellTypes || []).length === 0, 'structured Sheet has unknown cell types');
+    check(Number(sidecar.missingFormulaValues || 0) === 0, 'structured Sheet has missing formula values');
+    check(Number(sidecar.formulaExpressionsMissing || 0) === Number(expected.structuredSheet.formulaExpressionsMissing || 0),
+      `formulaExpressionsMissing is ${sidecar.formulaExpressionsMissing || 0}, expected ${expected.structuredSheet.formulaExpressionsMissing || 0}`);
+    const values = Object.fromEntries((sidecar.cells || []).map((cell) => [cell.address, cell.value]));
+    for (const [address, value] of Object.entries(expected.structuredSheet.cells || {})) {
+      check(values[address] === value, `Sheet cell ${address} is ${JSON.stringify(values[address])}, expected ${JSON.stringify(value)}`);
+    }
+  } catch (error) {
+    failures.push(`structured Sheet sidecar is unavailable: ${error.message}`);
+  }
+}
 if (expected.assetSha256) {
   const assetsDir = join(exportDir, 'assets');
   let actual = [];

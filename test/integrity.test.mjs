@@ -11,6 +11,7 @@ function fullEvidence(overrides = {}) {
       images: { expected: 2, exported: 2 },
       attachments: { expected: 1, exported: 1 },
       whiteboards: { expected: 0, exported: 0 },
+      structuredSheets: { expected: 0, exported: 0, formulaExpressionsMissing: 0 },
       sheetFallbacks: { expected: 0, exported: 0 },
     },
     comments: { status: 'checked', threads: 1 },
@@ -57,4 +58,20 @@ test('a complete visual whiteboard fallback remains degraded', () => {
   const report = evaluateIntegrity(evidence);
   assert.equal(report.verdict, 'degraded');
   assert.equal(report.checks.find((check) => check.name === 'whiteboards').status, 'warn');
+});
+
+test('structured sheets degrade when formula expressions are unavailable', () => {
+  const evidence = fullEvidence();
+  evidence.media.structuredSheets = { expected: 1, exported: 1, formulaExpressionsMissing: 1 };
+  const report = evaluateIntegrity(evidence);
+  assert.equal(report.verdict, 'degraded');
+  assert.equal(report.checks.find((check) => check.name === 'structuredSheets').status, 'warn');
+});
+
+test('fully structured sheets with formula expressions can be complete', () => {
+  const evidence = fullEvidence();
+  evidence.media.structuredSheets = { expected: 1, exported: 1, formulaExpressionsMissing: 0 };
+  const report = evaluateIntegrity(evidence);
+  assert.equal(report.verdict, 'complete');
+  assert.equal(report.checks.find((check) => check.name === 'structuredSheets').status, 'pass');
 });
