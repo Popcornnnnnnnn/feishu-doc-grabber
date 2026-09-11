@@ -122,7 +122,7 @@
       "foregroundRequired": false,
       "source": "tests/generated/FG-07 Native Comments.docx",
       "generator": "tools/generate-comment-fixture.py (bundled workspace Python)",
-      "coverage": ["whole_document_comment", "anchored_comment", "reply_thread", "resolved_comment", "multiple_threads", "unicode_comment"],
+      "coverage": ["whole_document_comment", "anchored_comment", "partial_range_comment", "reply_thread", "resolved_comment", "multiple_threads", "unicode_comment"],
       "remainingGaps": [],
       "expect": {
         "integrity": "complete",
@@ -133,11 +133,14 @@
           "评论正文 Ω alpha",
           "COMMENT-ANCHOR-A3-THREAD-ROOT",
           "COMMENT-ANCHOR-A3-THREAD-REPLY",
+          "COMMENT-ANCHOR-B7-THREAD-ROOT",
+          "COMMENT-ANCHOR-B7-THREAD-REPLY-1",
+          "COMMENT-ANCHOR-B7-THREAD-REPLY-2",
           "COMMENT-RESOLVED-C4-THREAD"
         ],
-        "minCommentThreads": 5,
-        "minAnchoredComments": 2,
-        "minCommentReplies": 1,
+        "minCommentThreads": 6,
+        "minAnchoredComments": 3,
+        "minCommentReplies": 3,
         "minResolvedComments": 1,
         "minMarkdownBytes": 400
       }
