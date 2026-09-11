@@ -398,10 +398,10 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
 
 private func statusColor(_ status: String) -> Color {
     switch status {
-    case "complete": return AppTheme.success
-    case "degraded": return AppTheme.warning
-    case "incomplete", "failed": return AppTheme.danger
-    default: return AppTheme.mutedText
+    case "complete": return .green
+    case "degraded": return .orange
+    case "incomplete", "failed": return .red
+    default: return .secondary
     }
 }
 
@@ -415,425 +415,296 @@ private func statusLabel(_ status: String) -> String {
     }
 }
 
-private enum AppTheme {
-    static let canvas = Color(red: 0.035, green: 0.043, blue: 0.071)
-    static let panel = Color(red: 0.067, green: 0.078, blue: 0.118)
-    static let elevated = Color(red: 0.09, green: 0.104, blue: 0.153)
-    static let field = Color(red: 0.047, green: 0.055, blue: 0.086)
-    static let stroke = Color.white.opacity(0.09)
-    static let strongStroke = Color.white.opacity(0.16)
-    static let primaryText = Color.white.opacity(0.96)
-    static let secondaryText = Color.white.opacity(0.62)
-    static let mutedText = Color.white.opacity(0.42)
-    static let accent = Color(red: 0.47, green: 0.39, blue: 1.0)
-    static let cyan = Color(red: 0.12, green: 0.76, blue: 0.92)
-    static let success = Color(red: 0.27, green: 0.86, blue: 0.58)
-    static let warning = Color(red: 1.0, green: 0.68, blue: 0.24)
-    static let danger = Color(red: 1.0, green: 0.35, blue: 0.43)
-}
+private enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
 
-struct PrimaryActionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .frame(height: 42)
-            .background(
-                LinearGradient(
-                    colors: [AppTheme.accent, AppTheme.cyan],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ),
-                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-            )
-            .shadow(color: AppTheme.accent.opacity(0.24), radius: 14, y: 7)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
+    var id: String { rawValue }
 
-struct SecondaryActionButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(AppTheme.primaryText)
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(AppTheme.stroke, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.72 : 1)
-    }
-}
-
-struct FeatureBadge: View {
-    let icon: String
-    let title: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).foregroundStyle(AppTheme.cyan)
-            Text(title).foregroundStyle(AppTheme.secondaryText)
+    var title: String {
+        switch self {
+        case .system: return "系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
         }
-        .font(.system(size: 12, weight: .medium))
-        .padding(.horizontal, 11)
-        .frame(height: 30)
-        .background(AppTheme.elevated.opacity(0.72), in: Capsule())
-        .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
     }
 }
 
-struct MetricView: View {
+private struct StatusCount: View {
     let value: Int
     let title: String
     let color: Color
-    let icon: String
 
     var body: some View {
-        HStack(spacing: 11) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 30, height: 30)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(value)").font(.system(size: 19, weight: .bold)).foregroundStyle(AppTheme.primaryText)
-                Text(title).font(.caption).foregroundStyle(AppTheme.secondaryText)
-            }
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(title).foregroundStyle(.secondary)
+            Text("\(value)").fontWeight(.semibold)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(AppTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(AppTheme.stroke, lineWidth: 1))
+        .font(.caption)
     }
 }
 
-struct DocumentRow: View {
+private struct DocumentRow: View {
     let document: ExportDocument
     let open: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 13) {
-            Image(systemName: document.status == "complete" ? "checkmark" : "exclamationmark")
-                .font(.system(size: 11, weight: .bold))
+        HStack(spacing: 12) {
+            Image(systemName: document.status == "complete" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(statusColor(document.status))
-                .frame(width: 28, height: 28)
-                .background(statusColor(document.status).opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
+                .font(.system(size: 16))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(document.displayName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
+                    .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 Text(document.detail)
                     .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
-                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
             Text(statusLabel(document.status))
-                .font(.caption.weight(.semibold)).foregroundStyle(statusColor(document.status))
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(statusColor(document.status).opacity(0.12), in: Capsule())
+                .font(.caption)
+                .foregroundStyle(statusColor(document.status))
             if document.output != nil {
                 Button(action: open) {
                     Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .frame(width: 28, height: 28)
-                        .background(AppTheme.elevated, in: RoundedRectangle(cornerRadius: 7))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help("打开导出文件")
             }
         }
-        .padding(13)
-        .background(AppTheme.field, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.stroke, lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
 struct ContentView: View {
     @StateObject private var model = ExportModel()
+    @AppStorage("appearanceMode") private var appearanceRawValue = AppearanceMode.system.rawValue
+
+    private var appearance: AppearanceMode {
+        AppearanceMode(rawValue: appearanceRawValue) ?? .system
+    }
+
+    private var appearanceSelection: Binding<AppearanceMode> {
+        Binding(
+            get: { appearance },
+            set: { appearanceRawValue = $0.rawValue }
+        )
+    }
 
     private var counts: [String: Int] {
         Dictionary(grouping: model.documents, by: \.status).mapValues(\.count)
     }
 
-    private var accountStatusTitle: String {
-        if model.isRunning { return "正在运行" }
-        switch model.authState {
-        case .checking: return "检测登录"
-        case .signedIn: return "已登录"
-        case .signedOut: return "未登录"
-        case .unknown: return "待确认"
-        }
-    }
-
-    private var accountStatusColor: Color {
-        if model.isRunning { return AppTheme.cyan }
-        switch model.authState {
-        case .checking: return AppTheme.cyan
-        case .signedIn: return AppTheme.success
-        case .signedOut: return AppTheme.warning
-        case .unknown: return AppTheme.mutedText
-        }
-    }
-
     var body: some View {
-        ZStack {
-            AppTheme.canvas.ignoresSafeArea()
-            RadialGradient(
-                colors: [AppTheme.accent.opacity(0.12), .clear],
-                center: .topLeading,
-                startRadius: 10,
-                endRadius: 520
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                header
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
-                        hero
-                        inputSection
-                        if model.documents.isEmpty {
-                            capabilitySection
-                        } else {
-                            resultsSection
-                        }
-                        logSection
+        VStack(spacing: 0) {
+            toolbar
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    exportSection
+                    if !model.documents.isEmpty {
+                        resultsSection
                     }
-                    .frame(maxWidth: 920)
-                    .padding(.horizontal, 34)
-                    .padding(.top, 30)
-                    .padding(.bottom, 28)
-                    .frame(maxWidth: .infinity)
                 }
+                .frame(maxWidth: 760)
+                .padding(24)
+                .frame(maxWidth: .infinity)
             }
+            Divider()
+            logSection
         }
-        .frame(minWidth: 820, minHeight: 650)
-        .preferredColorScheme(.dark)
+        .frame(minWidth: 680, minHeight: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .preferredColorScheme(appearance.colorScheme)
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
+    private var toolbar: some View {
+        HStack(spacing: 10) {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 36, height: 36)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Feishu Grabber")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(AppTheme.primaryText)
-                Text("本地完整性导出")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
+                .frame(width: 30, height: 30)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            Text("Feishu Grabber")
+                .font(.headline)
             Spacer()
-            Button { model.refreshAuthentication() } label: {
-                HStack(spacing: 7) {
-                    if model.isRunning || model.isCheckingAuth {
-                        ProgressView().controlSize(.mini).tint(accountStatusColor)
-                    } else {
-                        Circle().fill(accountStatusColor).frame(width: 6, height: 6)
-                    }
-                    Text(accountStatusTitle)
+            Picker("外观", selection: appearanceSelection) {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
                 }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(AppTheme.secondaryText)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(AppTheme.elevated.opacity(0.74), in: Capsule())
-                .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 1))
             }
-            .buttonStyle(.plain)
-            .disabled(model.isRunning || model.isCheckingAuth)
-            .help("重新检测登录状态")
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 156)
+            .help("切换界面外观")
+            accountControl
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var accountControl: some View {
+        switch model.authState {
+        case .signedIn:
+            Menu {
+                Button("检测登录状态") { model.refreshAuthentication() }
+                Divider()
+                Button("重新登录") { model.login() }
+            } label: {
+                Label("已登录", systemImage: "checkmark.circle.fill")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        case .checking:
+            HStack(spacing: 7) {
+                ProgressView().controlSize(.small)
+                Text("检测登录")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 78)
+        case .signedOut, .unknown:
             Button { model.login() } label: {
-                Label(
-                    model.authState == .signedIn ? "重新登录" : "登录飞书",
-                    systemImage: model.authState == .signedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle"
-                )
+                Label("登录飞书", systemImage: "person.crop.circle")
             }
-            .buttonStyle(SecondaryActionButtonStyle())
             .disabled(model.isRunning || model.isCheckingAuth)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 18)
-        .padding(.bottom, 13)
-        .background(AppTheme.canvas.opacity(0.9))
-        .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.stroke).frame(height: 1) }
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("把飞书文档，完整带回本地。")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(AppTheme.primaryText)
-            Text("批量导出正文、表格、评论和附件，并明确告诉你哪些内容完整、哪些还需要处理。")
-                .font(.system(size: 14))
-                .foregroundStyle(AppTheme.secondaryText)
-        }
-    }
-
-    private var inputSection: some View {
+    private var exportSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                Text("01")
-                    .font(.caption2.bold())
-                    .foregroundStyle(AppTheme.cyan)
-                    .frame(width: 28, height: 22)
-                    .background(AppTheme.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                Text("添加文档")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppTheme.primaryText)
-                Spacer()
-                if model.validURLCount > 0 {
-                    Text("已识别 \(model.validURLCount) 个链接")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(AppTheme.success)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text("导出文档")
+                        .font(.title3.weight(.semibold))
+                    Spacer()
+                    if model.validURLCount > 0 {
+                        Text("\(model.validURLCount) 个链接")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Text("粘贴一个或多个飞书 / Lark 文档链接，每行一个。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $model.urlsText)
                     .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(AppTheme.primaryText)
                     .scrollContentBackground(.hidden)
-                    .padding(11)
+                    .padding(9)
                 if model.urlsText.isEmpty {
-                    Text("粘贴一个或多个飞书 / Lark 文档链接…")
+                    Text("https://example.feishu.cn/wiki/…")
                         .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(AppTheme.mutedText)
-                        .padding(.leading, 16)
-                        .padding(.top, 18)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 14)
+                        .padding(.top, 15)
                         .allowsHitTesting(false)
                 }
             }
-            .frame(height: 132)
-            .background(AppTheme.field, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(height: 138)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(model.validURLCount > 0 ? AppTheme.cyan.opacity(0.48) : AppTheme.strongStroke, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
             )
 
-            HStack {
-                Image(systemName: "externaldrive.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(AppTheme.cyan)
-                    .frame(width: 30, height: 30)
-                    .background(AppTheme.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: 10) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("保存位置").font(.caption2).foregroundStyle(AppTheme.mutedText)
+                    Text("保存位置")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     Text(model.outputBase.path)
+                        .font(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
                         .textSelection(.enabled)
                 }
                 Spacer()
-                Button("更改") { model.chooseOutputFolder() }
-                    .buttonStyle(SecondaryActionButtonStyle())
+                Button("更改…") { model.chooseOutputFolder() }
                     .disabled(model.isRunning)
             }
+            .padding(11)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
 
-            HStack {
-                if model.isRunning {
-                    Button("取消导出", role: .destructive) { model.cancel() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(AppTheme.danger)
-                } else {
-                    HStack(spacing: 7) {
-                        Image(systemName: "info.circle")
-                        Text(model.message).lineLimit(1)
-                    }
+            HStack(spacing: 12) {
+                Image(systemName: model.authState == .signedIn ? "checkmark.circle" : "info.circle")
+                    .foregroundStyle(.secondary)
+                Text(model.message)
                     .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-                }
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
-                Button {
-                    model.export()
-                } label: {
-                    Label(
-                        model.isRunning ? "正在导出…" : (model.validURLCount > 1 ? "导出 \(model.validURLCount) 个文档" : "开始导出"),
-                        systemImage: "arrow.down.doc.fill"
-                    )
+                if model.isRunning {
+                    Button("取消", role: .destructive) { model.cancel() }
                 }
-                .buttonStyle(PrimaryActionButtonStyle())
+                Button(model.isRunning ? "正在导出…" : "开始导出") {
+                    model.export()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
                 .disabled(model.isRunning || model.validURLCount == 0)
-                .opacity(model.isRunning || model.validURLCount == 0 ? 0.42 : 1)
             }
-        }
-        .padding(20)
-        .background(AppTheme.panel.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.stroke, lineWidth: 1))
-        .shadow(color: .black.opacity(0.2), radius: 28, y: 16)
-    }
 
-    private var capabilitySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("关键结构，都有明确检查")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppTheme.secondaryText)
-            HStack(spacing: 8) {
-                FeatureBadge(icon: "text.alignleft", title: "富文本")
-                FeatureBadge(icon: "tablecells", title: "表格")
-                FeatureBadge(icon: "bubble.left.and.bubble.right", title: "评论")
-                FeatureBadge(icon: "paperclip", title: "附件")
-                FeatureBadge(icon: "checkmark.shield", title: "完整性报告")
-            }
-            HStack(spacing: 9) {
-                Image(systemName: "moon.zzz.fill").foregroundStyle(AppTheme.accent)
-                Text("普通导出使用隔离浏览器配置在后台运行；只有首次登录会打开 Chrome。")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
-            .padding(.top, 2)
+            Text("正文、表格、评论和附件会随完整性报告一起导出。")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 
     private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Divider()
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("导出结果").font(.system(size: 16, weight: .semibold)).foregroundStyle(AppTheme.primaryText)
-                    Text(model.message).font(.caption).foregroundStyle(AppTheme.secondaryText)
-                }
+                Text("导出结果")
+                    .font(.headline)
                 Spacer()
-                Button { model.openResultPage() } label: { Label("结果页", systemImage: "safari") }
-                    .buttonStyle(SecondaryActionButtonStyle())
-                Button { model.openOutputFolder() } label: { Label("在 Finder 中显示", systemImage: "folder") }
-                    .buttonStyle(SecondaryActionButtonStyle())
+                Button("结果页") { model.openResultPage() }
+                Button("在 Finder 中显示") { model.openOutputFolder() }
             }
-            HStack(spacing: 10) {
-                MetricView(value: counts["complete", default: 0], title: "完整", color: AppTheme.success, icon: "checkmark")
-                MetricView(value: counts["degraded", default: 0], title: "降级", color: AppTheme.warning, icon: "minus")
-                MetricView(value: counts["incomplete", default: 0], title: "不完整", color: AppTheme.danger, icon: "exclamationmark")
-                MetricView(value: counts["failed", default: 0], title: "失败", color: AppTheme.danger, icon: "xmark")
-            }
-            ForEach(model.documents) { document in
-                DocumentRow(document: document) { model.openOutput(document) }
-            }
-            if model.retryCount > 0 {
-                HStack {
-                    Text("有 \(model.retryCount) 个文档尚未达到完整状态")
-                        .font(.caption).foregroundStyle(AppTheme.secondaryText)
-                    Spacer()
-                    Button { model.retry() } label: { Label("重试未完成项", systemImage: "arrow.clockwise") }
-                        .buttonStyle(PrimaryActionButtonStyle())
+            HStack(spacing: 16) {
+                StatusCount(value: counts["complete", default: 0], title: "完整", color: .green)
+                StatusCount(value: counts["degraded", default: 0], title: "降级", color: .orange)
+                StatusCount(value: counts["incomplete", default: 0], title: "不完整", color: .red)
+                StatusCount(value: counts["failed", default: 0], title: "失败", color: .red)
+                Spacer()
+                if model.retryCount > 0 {
+                    Button("重试未完成项") { model.retry() }
                         .disabled(model.isRunning)
                 }
-                .padding(.top, 4)
             }
+            VStack(spacing: 0) {
+                ForEach(model.documents) { document in
+                    DocumentRow(document: document) { model.openOutput(document) }
+                    if document.id != model.documents.last?.id {
+                        Divider().padding(.leading, 40)
+                    }
+                }
+            }
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
         }
-        .padding(20)
-        .background(AppTheme.panel.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppTheme.stroke, lineWidth: 1))
     }
 
     private var logSection: some View {
@@ -843,24 +714,17 @@ struct ContentView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(10)
             }
-            .frame(maxHeight: 180)
-            .background(Color.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 10))
-            .foregroundStyle(AppTheme.secondaryText)
+            .frame(maxHeight: 130)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
             .padding(.top, 8)
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "terminal")
-                Text("运行日志")
-                if !model.logText.isEmpty {
-                    Circle().fill(AppTheme.cyan).frame(width: 5, height: 5)
-                }
-            }
+            Label("运行日志", systemImage: "terminal")
+                .font(.caption)
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(AppTheme.mutedText)
-        .tint(AppTheme.mutedText)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
     }
 }
 
@@ -885,7 +749,7 @@ struct FeishuGrabberApp: App {
             ContentView()
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 960, height: 680)
+        .defaultSize(width: 760, height: 520)
         .commands {
             CommandGroup(replacing: .newItem) { }
         }
