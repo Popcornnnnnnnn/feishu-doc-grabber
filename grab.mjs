@@ -37,13 +37,14 @@ import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
 const ALLOWED_PATH = /^\/(docx|wiki|docs)\//i;
+const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 // ---------- CLI ----------
 
 function parseArgs(argv) {
   const args = {
     urls: [], out: join(homedir(), 'Downloads'), list: null,
-    format: 'pdf', timeoutMs: 180000, allowFocus: false,
+    format: 'md', timeoutMs: 180000, allowRender: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -51,7 +52,8 @@ function parseArgs(argv) {
     else if (a === '--list') args.list = argv[++i];
     else if (a === '--format' || a === '-f') args.format = argv[++i];
     else if (a === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000;
-    else if (a === '--allow-focus') args.allowFocus = true;
+    else if (a === '--render-fallback' || a === '--allow-focus') args.allowRender = true;
+    else if (a === '--version' || a === '-v') args.version = true;
     else if (a === '--help' || a === '-h') args.help = true;
     else args.urls.push(a);
   }
@@ -59,22 +61,23 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`feishu-doc-grabber
+  console.log(`feishu-doc-grabber ${VERSION}
 
 用法:
-  grab <url> [--format pdf|md|html|capture] [--out <dir>] [--allow-focus]
+  feishu-grab <url> [--format md|pdf|html|capture] [--out <dir>] [--render-fallback]
 
-  pdf      printToPDF（快，但宽表格可能被裁、可能带浮层 —— Phase A）
-  md       DOM 提取转 Markdown，图片下载到 assets/（Phase B）
-  html     清洗后的正文 HTML（Phase B）
-  capture  录制全部网络响应到 out/capture-*/，用于分析 block JSON（Phase C）
+  md       默认。SSR/API 直取 Markdown，不创建 Chrome 标签页
+  pdf      printToPDF；需要渲染，可能激活 Chrome
+  html     DOM 提取 HTML；需要渲染，可能激活 Chrome
+  capture  录制网络响应；需要渲染，供调试使用
 
-  --allow-focus  兼容旧命令；画板/表格截图现在默认完全后台运行
+  --render-fallback  允许 Markdown 在 SSR 不足时打开渲染页做 DOM/截图兜底；
+                     macOS 可能因此激活 Chrome（--allow-focus 为兼容别名）
 
-  grab --list <urls.txt>   批量（每行一个 URL，# 注释）
+  feishu-grab --list <urls.txt>   批量（每行一个 URL，# 注释）
 
 浏览器: 自动使用 AI 专属 Chrome（独立 profile ~/.ai-chrome-profile）
-  aichrome status | open <url> | stop
+  feishu-chrome login | start | status | open <url> | stop
 `);
 }
 
@@ -90,7 +93,7 @@ async function connect() {
   return puppeteer.connect({ browserWSEndpoint: webSocketDebuggerUrl, defaultViewport: null });
 }
 
-/** 后台开新页：不抢焦点、不切用户正在看的标签页 */
+/** 创建渲染页；macOS 可能激活 Chrome，只能由显式渲染操作调用。 */
 async function newBgPage(browser) {
   const cdp = await browser.target().createCDPSession();
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', background: true });
@@ -480,6 +483,9 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     const forms = [canonUrl, canonUrl + '?chunked=false', canonUrl + '?r=' + Date.now()];
     for (let i = 0; i < forms.length * 2; i++) {
       html = await fetchHtml(browser, forms[i % forms.length]);
+      if (/(?:accounts|passport)\.feishu\.cn|<title>[^<]*(?:登录|log in|sign in)[^<]*<\/title>/i.test(html)) {
+        throw new Error('未登录飞书。请先运行 feishu-chrome login，完成一次显式登录');
+      }
       if (/<title>[^<]*404[^<]*<\/title>/.test(html)) {
         throw new Error('文档不存在或无权限（404）。请从浏览器地址栏重新复制链接（注意 I/l、O/0 易混字符），或确认文档未被移动/删除');
       }
@@ -573,7 +579,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         imageCount = parsed.images.filter((img) => map.has(`ssrimg://${img.token}/${img.blockId}`)).length;
         attachmentCount = parsed.files.filter((item) => map.has(`ssrfile://${item.token}/${item.blockId}`)).length;
         for (const [ph, rel] of map) body = body.split(ph).join(rel);
-        if (parsed.whiteboards.length || sheetsNeedShot) {
+        if ((parsed.whiteboards.length || sheetsNeedShot) && options.allowRender) {
           const bmap = await screenshotCanvasBlocks(
             browser,
             canonUrl,
@@ -585,6 +591,12 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           sheetFallbackCount = sheetFallbacks.filter((item) => bmap.has(`ssrsheet://${item.token}/${item.blockId}`)).length;
           for (const [ph, rel] of bmap) body = body.split(ph).join(rel);
           body = body.replace(/!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g, '> 🎨 $1（截图失败，请在飞书查看）');
+        } else if (parsed.whiteboards.length || sheetsNeedShot) {
+          console.warn('⚠ 跳过需要页面渲染的画板/Sheet 兜底；如需截图请显式添加 --render-fallback');
+          body = body.replace(
+            /!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g,
+            '> ⚠ $1需要页面渲染；本次为零渲染后台导出，未生成截图',
+          );
         }
       }
       if (mode === 'md') body = applyComments(body, threads);
@@ -615,6 +627,9 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         nextCursors: parsed.stats.nextCursors,
       });
       return { url, ok: true, file, integrity };
+    }
+    if (!options.allowRender) {
+      throw new Error('SSR 数据不可用；零渲染后台模式不会打开 Chrome 页面。可显式添加 --render-fallback 进行 DOM 兜底');
     }
     console.log('⚠ SSR 数据不可用（可能需要滚动加载），回落 DOM 提取…');
   }
@@ -895,6 +910,7 @@ async function withRetry(fn, times = 2) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.version) { console.log(VERSION); return; }
   if (args.help || (!args.urls.length && !args.list)) { usage(); process.exit(0); }
   if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`未知格式: ${args.format}`);
 
@@ -913,7 +929,7 @@ async function main() {
       try {
         const fn = args.format === 'pdf' ? grabPdf
           : args.format === 'capture' ? grabCapture
-          : (b, u, o, t) => grabExtract(b, u, o, t, args.format, { allowFocus: args.allowFocus });
+          : (b, u, o, t) => grabExtract(b, u, o, t, args.format, { allowRender: args.allowRender });
         results.push(await withRetry(() => fn(browser, url, args.out, args.timeoutMs)));
       } catch (e) {
         results.push({ url, ok: false, error: e.message });

@@ -1,17 +1,53 @@
 # feishu-doc-grabber
 
-Local Feishu/Lark document export through an isolated Chrome profile. Markdown export prefers SSR block data and falls back to rendered DOM extraction when required.
+Local, integrity-aware Feishu/Lark document export. Markdown is the default and uses authenticated SSR/API data without opening Chrome tabs.
+
+## Install
 
 ```bash
 npm install
-node tools/ai-chrome.mjs start
-node grab.mjs 'https://example.feishu.cn/wiki/...' --format md --out out
+npm link
 ```
 
-Every run writes `export-report.json` with a `complete`, `degraded`, or `incomplete` verdict. See [Export Integrity Protocol v1](INTEGRITY.md) for the evidence rules and exit codes.
+Log in once. This command intentionally opens a Chrome window:
 
-The real-document coverage matrix is tracked separately in [Feishu Export Test Corpus](TEST-CORPUS.md). Prepared local fixtures do not count as live coverage.
+```bash
+feishu-chrome login
+```
 
-The exporter runs without taking window focus by default, including canvas-only whiteboard and sheet screenshots. `--allow-focus` remains accepted only for compatibility.
+After login, exports automatically start the isolated Chrome profile headlessly when needed:
 
-Implementation notes and current limitations are tracked in [PLAN.md](PLAN.md).
+```bash
+feishu-grab 'https://example.feishu.cn/wiki/...' --out exports
+```
+
+Multiple URLs and text-file batches are supported:
+
+```bash
+feishu-grab <url-1> <url-2> --out exports
+feishu-grab --list urls.txt --out exports
+```
+
+## Output and integrity
+
+Each run writes Markdown, downloaded assets, and `export-report.json`. Every document receives one verdict:
+
+- `complete`: all checked dimensions have positive completeness evidence.
+- `degraded`: a file was produced, but at least one dimension cannot be proven.
+- `incomplete`: the source proves content or resources are missing.
+
+Exit codes are `0` for complete, `1` for an operational failure, and `2` for degraded or incomplete output. See [Export Integrity Protocol v1](INTEGRITY.md) for the exact rules.
+
+## Rendering is opt-in
+
+The default Markdown path never creates a Chrome tab. If SSR/API data is unavailable, it exits with a clear error instead of unexpectedly activating Chrome.
+
+Use `--render-fallback` only when DOM or screenshot fallback is acceptable:
+
+```bash
+feishu-grab <url> --render-fallback
+```
+
+On macOS this option may activate Chrome. Explicit `--format pdf`, `--format html`, and `--format capture` operations also require rendering. `--allow-focus` remains as a compatibility alias for `--render-fallback`.
+
+The real-document compatibility matrix is documented in [Feishu Export Test Corpus](TEST-CORPUS.md); implementation notes are in [PLAN.md](PLAN.md).

@@ -20,7 +20,9 @@ An export is not considered complete merely because a file was written. Every ru
 
 ## Background behavior
 
-The default mode never brings Chrome to the foreground. Embedded sheets are read directly from authenticated `client_vars`, cell-block, and formula-block responses. Canvas-only whiteboards and unresolved sheet fallbacks are captured in hidden Chrome targets with focus emulation and exact block targeting. Successful screenshots remain `degraded` evidence rather than `complete`; `--allow-focus` is retained only as a compatibility flag.
+Markdown defaults to a zero-render path: document blocks, comments, media, and embedded sheets are read from authenticated SSR/API responses without creating a Chrome tab. If that evidence is unavailable, the run fails clearly instead of silently opening a renderer.
+
+`--render-fallback` explicitly permits DOM and screenshot fallback. macOS may activate Chrome when a rendering target is created, even when CDP marks it as background. Successful screenshots remain `degraded` evidence rather than `complete`; missing screenshots are `incomplete`. `--allow-focus` is retained as a compatibility alias.
 
 ## Process exit codes
 

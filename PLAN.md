@@ -12,7 +12,7 @@
 ## 总体架构
 
 ```
-AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，与日常 Chrome 可同时运行）
+AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，默认 headless，与日常 Chrome 隔离）
   └── --remote-debugging-port=9222
         └── puppeteer-core 连接（tools/ai-chrome.mjs 负责 start/status/open/stop/ensure）
               ├── A. 打开文档 → 自动滚动加载 → Page.printToPDF
@@ -22,6 +22,7 @@ AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，与日常 Chrome 可�
 
 浏览器策略（已定）:
 - 不复用日常 Chrome profile，也不拷贝其登录态；AI 实例首次使用时手动登录一次飞书，登录态持久保存在独立 profile
+- `start` 和自动导出默认 headless；只有显式 `login`、`open` 或 `--render-fallback` 才允许出现可见页面
 - 原则: AI profile 里只登录愿意交给 AI 使用的账号（工作账号/低敏站点），不放银行、主邮箱等高敏账户
 - 大多数站点允许多并发 session（登录态是 cookie，同机同 IP），飞书无压力；个别单 session 策略的 SSO 需留意
 
@@ -87,8 +88,8 @@ AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，与日常 Chrome 可�
 >   原句定位失败（跨富文本节点等）时标记落在块尾。
 >   参数坑：comment/batch 必须 need_reply/need_reaction=true，CSRF 头是 X-CSRFToken
 >   （值取 _csrf_token cookie）；锚点 blockID 是 data-record-id（非 data-block-id）
-> - 画板/不可解析 sheet: 后台创建隐藏 Chrome target，启用 focus emulation，按 SSR block id 精确定位并滚动元素后截图；
->   不再调用 `bringToFront`，不会抢占用户焦点。截图只能证明可视内容，所以完整性协议统一判为 `degraded`；截图缺失判为 `incomplete`。
+> - 画板/不可解析 sheet: 只有显式传入 `--render-fallback` 才创建 Chrome target，启用 focus emulation，按 SSR block id 精确定位并滚动元素后截图；
+>   macOS 仍可能激活 Chrome，因此默认零渲染模式不会进入此路线。截图只能证明可视内容，所以完整性协议统一判为 `degraded`；截图缺失判为 `incomplete`。
 >   坐标映射运行时 id 仍可能不同于 block_map id，需保留 DOM 顺序兜底；调试/运行完务必关闭隐藏页。
 
 - [ ] CDP `Network.enable` 录制页面所有 XHR/fetch 响应
@@ -112,16 +113,17 @@ feishu-doc-grabber/
 ## 使用方式（当前）
 
 ```bash
-# 浏览器由工具自动拉起（AI 专属实例），也可手动管理:
-node tools/ai-chrome.mjs start|status|open <url>|stop
+# 首次登录会显式打开窗口；后续由工具 headless 自动拉起:
+feishu-chrome login
+feishu-chrome start|status|open <url>|stop
 
-# 导出
-node grab.mjs https://xxx.feishu.cn/wiki/xxxxx            # 默认 PDF
-node grab.mjs <url> --format md                           # Phase B
-node grab.mjs --list docs.txt --format pdf                # 批量
+# 默认 Markdown，不创建 Chrome 标签页
+feishu-grab https://xxx.feishu.cn/wiki/xxxxx
+feishu-grab --list docs.txt
+feishu-grab <url> --render-fallback                       # 显式允许 DOM/截图兜底
 ```
 
-首次使用: `node tools/ai-chrome.mjs start` 后在弹出的窗口登录飞书（一次即可）。
+首次使用：执行 `feishu-chrome login`，在显式打开的窗口里登录一次。
 
 隔离测试租户使用独立 profile 和端口，不会读取或修改日常/公司登录态：
 
