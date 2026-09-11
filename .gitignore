@@ -3,3 +3,5 @@ node_modules/
 _failed.txt
 tests/generated/
 tests/private/
+dist/
+.build-app/
