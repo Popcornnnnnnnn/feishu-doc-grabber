@@ -63,6 +63,16 @@ if (expected.minCommentThreads != null) {
   check(Number(evidence.comments?.threads || 0) >= expected.minCommentThreads,
     `comment threads are ${evidence.comments?.threads || 0}, expected at least ${expected.minCommentThreads}`);
 }
+for (const [field, expectedField, label] of [
+  ['anchored', 'minAnchoredComments', 'anchored comments'],
+  ['replies', 'minCommentReplies', 'comment replies'],
+  ['resolved', 'minResolvedComments', 'resolved comments'],
+]) {
+  if (expected[expectedField] != null) {
+    check(Number(evidence.comments?.[field] || 0) >= expected[expectedField],
+      `${label} are ${evidence.comments?.[field] || 0}, expected at least ${expected[expectedField]}`);
+  }
+}
 for (const [kind, count] of Object.entries(expected.media || {})) {
   check(Number(evidence.media?.[kind]?.expected || 0) === count,
     `${kind} detected count is ${evidence.media?.[kind]?.expected || 0}, expected ${count}`);

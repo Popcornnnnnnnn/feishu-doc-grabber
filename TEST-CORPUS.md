@@ -48,7 +48,7 @@ TEST_TENANT_HOST=<free-test-tenant> AI_CHROME_PORT=9223 node tools/whiteboard-ac
 
 The mutation scripts submit editor actions; the case is not accepted until a fresh export passes `tools/validate-corpus.mjs`. This keeps editor automation evidence separate from exporter evidence.
 
-FG-07 currently proves multiple native whole-document comments, including Unicode comment text. Feishu DOCX import does not preserve Word comments, so the three native comments are added after import in the isolated tenant. Anchored text comments, reply threads, and resolved comments remain explicit gaps; they are not counted as covered.
+FG-07 currently proves multiple native whole-document comments, including Unicode comment text. Feishu DOCX import does not preserve Word comments, so the three native comments are added after import in the isolated tenant. The exporter now distinguishes whole-document, anchored, replied, and resolved thread states and escapes comment HTML. Anchored text comments, reply threads, and resolved comments remain explicit live-corpus gaps; they are not counted as covered until a fresh isolated export reports positive counts for each state.
 
 FG-05 verifies five exported image payloads by SHA-256, including a duplicate, a large PNG, a JPEG, and an SVG source imported through a deterministic PNG raster fallback. Native SVG upload remains an explicit gap.
 

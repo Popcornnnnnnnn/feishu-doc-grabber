@@ -25,7 +25,12 @@ import {
   mergeClientVarsPages,
 } from './lib/ssr.mjs';
 import { evaluateIntegrity } from './lib/integrity.mjs';
-import { collectCommentIds } from './lib/comments.mjs';
+import {
+  applyComments,
+  collectCommentIds,
+  commentStats,
+  normalizeCommentThreads,
+} from './lib/comments.mjs';
 import { validateDownloadedPayload } from './lib/media.mjs';
 import { decodeSheetClientVars, parseEmbeddedSheetRef, sheetBlockRequirements } from './lib/sheet.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
@@ -272,7 +277,6 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
     { method: 'POST', headers: H2 }
   )).json();
   if (idsResp.code !== 0) throw new Error(`commentid/all: ${idsResp.msg}`);
-  const relations = idsResp.data?.commentRelations ?? {};
   const ids = collectCommentIds(idsResp.data);
   if (!ids.length) return [];
   const form = new URLSearchParams();
@@ -287,60 +291,7 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
     method: 'POST', headers: H2, body: form.toString(),
   })).json();
   if (batchResp.code !== 0) throw new Error(`comment/batch: ${batchResp.msg}`);
-  const comments = batchResp.data?.comments ?? {};
-
-  const threads = [];
-  for (const cid of ids) {
-    const rel = relations[cid]?.relation ? Object.values(relations[cid].relation)[0] : null;
-    const comment = comments[cid] ?? {};
-    const quote = (comment.quote || '').trim();
-    let position = comment.position;
-    if (typeof position === 'string' && position.trim().startsWith('{')) {
-      try { position = JSON.parse(position); } catch {}
-    }
-    const blockId = rel?.positionInfo?.blockID
-      || position?.positionInfo?.blockID
-      || position?.blockID
-      || position?.blockId
-      || position?.block_id
-      || comment.extra?.content_anchor_id
-      || null;
-    const entries = (comment.comment_list ?? [])
-      .filter((c) => !c.delete_flag && (c.content || '').replace(/<at[^>]*>@[^<]+<\/at>/g, '').trim())
-      .map((c, i) => ({
-        name: c.name || '匿名',
-        time: (c.create_time || '').slice(5, 16),
-        content: (c.content || '').replace(/<at[^>]*>@([^<]+)<\/at>/g, '@$1').replace(/\n/g, ' '),
-        isReply: i > 0 || (c.reply_id && c.reply_id !== c.comment_id),
-      }));
-    if (entries.length) threads.push({ blockId, quote, entries });
-  }
-  return threads;
-}
-
-/** 评论批注：原句高亮 + 编号上标（跳文末）+ 文末批注区（跳回原文） */
-function applyComments(body, threads) {
-  if (!threads.length) return body;
-  threads.forEach((th, i) => {
-    const marker = `\u27E6REF${i}\u27E7`;
-    const ref = `<span id="cmt-ref-${i}"><sup><a href="#cmt-note-${i}">\u3010\ud83d\udcac${i + 1}\u3011</a></sup></span>`;
-    const q = (th.quote || '').trim();
-    // 原句高亮：quote 紧邻标记时，一起替换为 <mark>原句</mark> + 上标
-    if (q && body.includes(q + marker)) {
-      body = body.split(q + marker).join(`<mark>${q}</mark>${ref}`);
-    } else if (body.includes(marker)) {
-      body = body.split(marker).join(ref);
-    } else {
-      body += `\n\n${ref}`;
-    }
-  });
-  const notes = threads.map((th, i) => {
-    const lines = th.entries
-      .map((e, j) => (j > 0 ? '<br>\u21b3 ' : '') + `<b>${e.name}</b>\uff08${e.time}\uff09\uff1a${e.content}`)
-      .join('');
-    return `<div id="cmt-note-${i}"><b>\ud83d\udcac${i + 1}</b> ${lines} <a href="#cmt-ref-${i}">\u21a9 \u56de\u539f\u6587</a></div>`;
-  }).join('\n');
-  return body + `\n\n---\n\n## \ud83d\udcac \u8bc4\u8bba\n\n${notes}\n`;
+  return normalizeCommentThreads(idsResp.data, batchResp.data);
 }
 
 /** 用浏览器里的登录态在 Node 侧抓原始 HTML（不经渲染，拿 SSR 全量数据） */
@@ -657,7 +608,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           },
           sheetFallbacks: { expected: sheetFallbacks.length, exported: sheetFallbackCount },
         },
-        comments: { status: commentStatus, threads: threads.length, error: commentError },
+        comments: { status: commentStatus, ...commentStats(threads), error: commentError },
         unknownBlocks: parsed.stats.unknownBlocks,
         blocks: parsed.stats.blocks,
         blockTypes: parsed.stats.types,
@@ -773,7 +724,7 @@ ${body}`);
         whiteboards: { expected: 0, exported: 0 },
         sheetFallbacks: { expected: 0, exported: 0 },
       },
-      comments: { status: commentStatus, threads: threads.length, error: commentError },
+      comments: { status: commentStatus, ...commentStats(threads), error: commentError },
       unknownBlocks: data.unknowns.length,
       blocks: data.blockCount,
       blockTypes: null,
