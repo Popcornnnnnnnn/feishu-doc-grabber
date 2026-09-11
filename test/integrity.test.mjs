@@ -43,3 +43,18 @@ test('unprovable pagination or comments produce degraded output', () => {
   assert.equal(report.verdict, 'degraded');
 });
 
+test('a complete visual sheet fallback remains degraded', () => {
+  const evidence = fullEvidence();
+  evidence.media.sheetFallbacks = { expected: 1, exported: 1 };
+  const report = evaluateIntegrity(evidence);
+  assert.equal(report.verdict, 'degraded');
+  assert.equal(report.checks.find((check) => check.name === 'sheetFallbacks').status, 'warn');
+});
+
+test('a complete visual whiteboard fallback remains degraded', () => {
+  const evidence = fullEvidence();
+  evidence.media.whiteboards = { expected: 1, exported: 1 };
+  const report = evaluateIntegrity(evidence);
+  assert.equal(report.verdict, 'degraded');
+  assert.equal(report.checks.find((check) => check.name === 'whiteboards').status, 'warn');
+});

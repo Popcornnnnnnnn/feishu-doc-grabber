@@ -22,7 +22,7 @@ test('corpus manifest has unique, auditable cases without tenant URLs', () => {
     assert.ok(item.setup);
     assert.equal(typeof item.foregroundRequired, 'boolean');
     assert.ok(item.coverage.length > 0);
-    assert.equal(item.expect.integrity, 'complete');
+    assert.ok(['complete', 'degraded', 'incomplete'].includes(item.expect.integrity));
     assert.ok(item.expect.sentinels.length > 0);
     sentinels.push(...item.expect.sentinels);
 

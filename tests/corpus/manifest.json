@@ -139,41 +139,57 @@
     {
       "id": "FG-08",
       "title": "Embedded Sheet",
-      "state": "blocked_by_native_editor",
-      "setup": "native_sheet",
-      "foregroundRequired": true,
-      "coverage": ["sheet_svg", "merged_cells", "formula", "wide_sheet", "unicode_cells"],
+      "state": "live",
+      "setup": "drive_import_then_background_native_sheet",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-08 Embedded Sheet.md",
+      "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/expand-sheet-fixture-background.mjs + tools/set-sheet-cell-background.mjs",
+      "coverage": ["native_sheet", "wide_sheet", "formula", "unicode_cell", "partial_view_detection", "screenshot_fallback"],
+      "remainingGaps": ["merged_cell_readback", "structured_full_sheet_export", "fallback_offscreen_tail"],
       "expect": {
-        "integrity": "complete",
+        "integrity": "degraded",
+        "minBlocks": 7,
+        "requiredBlockTypes": ["page", "sheet", "heading1", "text"],
         "sentinels": ["SHEET-A1-31CF", "SHEET-END-911B"],
-        "minMarkdownBytes": 500
+        "media": { "sheetFallbacks": 1 },
+        "minMarkdownBytes": 350
       }
     },
     {
       "id": "FG-09",
       "title": "Whiteboard",
-      "state": "blocked_by_native_editor",
-      "setup": "native_whiteboard",
-      "foregroundRequired": true,
-      "coverage": ["whiteboard_text", "shape", "connector", "screenshot_fallback"],
+      "state": "live",
+      "setup": "drive_import_then_background_native_whiteboard",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-09 Whiteboard.md",
+      "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/whiteboard-action-background.mjs",
+      "coverage": ["native_whiteboard", "rectangle", "ellipse", "diamond", "two_directional_connectors", "shape_labels", "unicode_text", "screenshot_fallback"],
+      "remainingGaps": ["structured_whiteboard_export"],
       "expect": {
-        "integrity": "complete",
+        "integrity": "degraded",
+        "minBlocks": 10,
+        "requiredBlockTypes": ["page", "whiteboard", "heading1", "text"],
         "sentinels": ["BOARD-TOP-C45D", "BOARD-END-A201"],
         "media": { "whiteboards": 1 },
-        "minMarkdownBytes": 150
+        "minMarkdownBytes": 220
       }
     },
     {
       "id": "FG-10",
       "title": "Complex Layout",
-      "state": "blocked_by_native_editor",
-      "setup": "native_editor",
-      "foregroundRequired": true,
-      "coverage": ["callout", "todo", "columns", "nested_quote", "mention", "bookmark", "unknown_block_detection"],
+      "state": "live",
+      "setup": "drive_import_then_background_native_blocks",
+      "foregroundRequired": false,
+      "source": "tests/source-docs/FG-10 Complex Layout.md",
+      "generator": "tools/import-markdown-background.mjs + tools/insert-block-background.mjs + tools/toggle-todo-background.mjs + tools/fill-columns-background.mjs + tools/replace-block-text-background.mjs",
+      "coverage": ["callout", "checked_todo", "unchecked_todo", "grid", "grid_columns", "quote_container", "unknown_block_detection"],
+      "remainingGaps": ["true_nested_quote", "user_mention", "bookmark_card"],
       "expect": {
         "integrity": "complete",
-        "sentinels": ["LAYOUT-COL-A", "LAYOUT-COL-B", "LAYOUT-END-70D2"],
-        "minMarkdownBytes": 500
+        "minBlocks": 18,
+        "requiredBlockTypes": ["page", "callout", "todo", "grid", "grid_column", "quote_container", "heading1", "text"],
+        "sentinels": ["CALLOUT-61D2", "TODO-UNCHECKED-4C2E", "TODO-CHECKED-A7F1", "LAYOUT-COL-A", "LAYOUT-COL-B", "QUOTE-OUTER-19AC", "QUOTE-INNER-5DE2", "LAYOUT-END-70D2"],
+        "minMarkdownBytes": 450
       }
     }
   ]

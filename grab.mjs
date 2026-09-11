@@ -62,7 +62,7 @@ function usage() {
   html     清洗后的正文 HTML（Phase B）
   capture  录制全部网络响应到 out/capture-*/，用于分析 block JSON（Phase C）
 
-  --allow-focus  允许画板/表格截图时短暂切到 AI Chrome；默认完全后台运行
+  --allow-focus  兼容旧命令；画板/表格截图现在默认完全后台运行
 
   grab --list <urls.txt>   批量（每行一个 URL，# 注释）
 
@@ -88,7 +88,10 @@ async function newBgPage(browser) {
   const cdp = await browser.target().createCDPSession();
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', background: true });
   const target = await browser.waitForTarget((t) => t._targetId === targetId, { timeout: 15000 });
-  return target.page();
+  const page = await target.page();
+  const pageSession = await page.createCDPSession();
+  await pageSession.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  return page;
 }
 
 // ---------- URL / 文件名 ----------
@@ -461,7 +464,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         ? clientVarsDataToMarkdown(clientVarsData, html)
         : htmlToMarkdown(html);
       if (parsed?.markdown?.trim()) {
-        const hasAllSheets = parsed.sheets.length === 0 || parsed.stats.sheets > 0;
+        const hasAllSheets = (parsed.sheetFallbacks?.length || 0) === 0;
         if (hasAllSheets) break;
         console.log(`  sheet SSR 未就绪（${i + 1}/${forms.length * 2}），重试…`);
       }
@@ -471,8 +474,9 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       const title = safeName(rawTitle).replace(/ - (飞书云文档|Feishu Docs|飞书)$/, '');
       const file = join(outDir, `${title}.md`);
       const parts = parsed.blocks ?? [{ id: null, md: parsed.markdown }];
-      const sheetsNeedShot = parsed.sheets.length > 0 && parsed.stats.sheets === 0;
-      if (sheetsNeedShot) console.log(`⚠ sheet SVG 不可用，${parsed.sheets.length} 个表格将走截图兜底`);
+      const sheetFallbacks = parsed.sheetFallbacks || [];
+      const sheetsNeedShot = sheetFallbacks.length > 0;
+      if (sheetsNeedShot) console.log(`⚠ ${sheetFallbacks.length} 个 sheet SVG 不可解析，将走后台截图兜底`);
       // 评论线程（锚点 → 顶层块）
       let threads = [];
       let commentStatus = objToken ? 'checked' : 'unknown';
@@ -522,14 +526,15 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         attachmentCount = parsed.files.filter((item) => map.has(`ssrfile://${item.token}/${item.blockId}`)).length;
         for (const [ph, rel] of map) body = body.split(ph).join(rel);
         if (parsed.whiteboards.length || sheetsNeedShot) {
-          let bmap = new Map();
-          if (options.allowFocus) {
-            bmap = await screenshotCanvasBlocks(browser, canonUrl, parsed.whiteboards, sheetsNeedShot ? parsed.sheets : [], join(outDir, 'assets'));
-          } else {
-            console.warn('⚠ 后台模式跳过画板/表格截图；如明确允许切换 AI Chrome，可加 --allow-focus');
-          }
+          const bmap = await screenshotCanvasBlocks(
+            browser,
+            canonUrl,
+            parsed.whiteboards,
+            sheetFallbacks,
+            join(outDir, 'assets'),
+          );
           whiteboardCount = parsed.whiteboards.filter((item) => bmap.has(`ssrboard://${item.token}/${item.blockId}`)).length;
-          sheetFallbackCount = (sheetsNeedShot ? parsed.sheets : []).filter((item) => bmap.has(`ssrsheet://${item.token}/${item.blockId}`)).length;
+          sheetFallbackCount = sheetFallbacks.filter((item) => bmap.has(`ssrsheet://${item.token}/${item.blockId}`)).length;
           for (const [ph, rel] of bmap) body = body.split(ph).join(rel);
           body = body.replace(/!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g, '> 🎨 $1（截图失败，请在飞书查看）');
         }
@@ -547,7 +552,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           images: { expected: parsed.images.length, exported: imageCount },
           attachments: { expected: parsed.files.length, exported: attachmentCount },
           whiteboards: { expected: parsed.whiteboards.length, exported: whiteboardCount },
-          sheetFallbacks: { expected: sheetsNeedShot ? parsed.sheets.length : 0, exported: sheetFallbackCount },
+          sheetFallbacks: { expected: sheetFallbacks.length, exported: sheetFallbackCount },
         },
         comments: { status: commentStatus, threads: threads.length, error: commentError },
         unknownBlocks: parsed.stats.unknownBlocks,
@@ -674,29 +679,51 @@ ${body}`);
   } finally { await page.close().catch(() => {}); }
 }
 
-/** 画板/表格截图：canvas 渲染的块只能走截图（需 bringToFront，窗口会短暂到前台） */
+/** 画板/表格截图：canvas 渲染块的后台视觉兜底。 */
 async function screenshotCanvasBlocks(browser, url, whiteboards, sheets, assetsDir) {
   const page = await newBgPage(browser);
   const map = new Map();
   try {
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
     await openDoc(page, url, 60000);
     await new Promise((r) => setTimeout(r, 5000));
-    await page.bringToFront();
-    const els = await page.$$('.docx-whiteboard-block, .docx-sheet-block');
-    let wi = 0, si = 0;
-    for (const el of els) {
-      const isWb = await el.evaluate((e) => e.classList.contains('docx-whiteboard-block')).catch(() => false);
-      const list = isWb ? whiteboards : sheets;
-      const idx = isWb ? wi++ : si++;
-      if (idx >= list.length) continue;
+    const expected = [
+      ...whiteboards.map((item, idx) => ({ ...item, kind: 'whiteboard', idx, scheme: 'ssrboard' })),
+      ...sheets.map((item, idx) => ({ ...item, kind: 'sheet', idx, scheme: 'ssrsheet' })),
+    ];
+    for (const item of expected) {
       try {
+        let el = null;
+        for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
+          await page.evaluate((position) => {
+            const items = [...document.querySelectorAll('*')].filter((element) => {
+              const style = getComputedStyle(element);
+              return element.scrollHeight - element.clientHeight > 100 && element.clientHeight > 150
+                && (style.overflowY === 'auto' || style.overflowY === 'scroll');
+            }).sort((a, b) => b.scrollHeight - a.scrollHeight);
+            for (const element of items.slice(0, 6)) {
+              element.scrollTop = (element.scrollHeight - element.clientHeight) * position;
+              element.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+          }, ratio);
+          await new Promise((r) => setTimeout(r, 800));
+          el = await page.$(`[data-record-id="${item.blockId}"], [data-block-id="${item.blockId}"]`);
+          if (el) break;
+        }
+        if (!el) {
+          const selector = item.kind === 'whiteboard'
+            ? '.docx-whiteboard-block, [data-block-type="whiteboard"], [data-block-type="board"]'
+            : '.docx-sheet-block, [data-block-type="sheet"], [class*="sheet-block"]';
+          const candidates = await page.$$(selector);
+          el = candidates[item.idx] || null;
+        }
+        if (!el) throw new Error(`${item.kind} block ${item.blockId} was not rendered`);
         await el.evaluate((e) => e.scrollIntoView({ block: 'center' })).catch(() => {});
-        await new Promise((r) => setTimeout(r, 6000));
-        const kind = isWb ? 'whiteboard' : 'sheet';
-        const file = `${kind}-${idx + 1}.png`;
+        await new Promise((r) => setTimeout(r, 5000));
+        const file = `${item.kind}-${item.idx + 1}.png`;
         await el.screenshot({ path: join(assetsDir, file) });
-        map.set(`${isWb ? 'ssrboard' : 'ssrsheet'}://${list[idx].token}/${list[idx].blockId}`, `assets/${file}`);
-        console.log(`  🎨 ${isWb ? '画板' : '表格'} ${idx + 1} 已截图 → ${file}`);
+        map.set(`${item.scheme}://${item.token}/${item.blockId}`, `assets/${file}`);
+        console.log(`  🎨 ${item.kind === 'whiteboard' ? '画板' : '表格'} ${item.idx + 1} 已截图 → ${file}`);
       } catch (e) { console.warn(`  ⚠ 截图失败: ${e.message.slice(0, 60)}`); }
     }
     return map;

@@ -74,3 +74,69 @@ test('file card view wrapper is recognized and renders its file child', () => {
   assert.match(parsed.markdown, /fixture\.txt/);
   assert.equal(parsed.stats.unknownBlocks, 0);
 });
+
+test('current todo and column block types render without unknown-block warnings', () => {
+  const blockMap = {
+    page: { id: 'page', data: { type: 'page', children: ['grid'] } },
+    grid: { id: 'grid', data: { type: 'grid', parent_id: 'page', children: ['left', 'right'] } },
+    left: { id: 'left', data: { type: 'grid_column', parent_id: 'grid', children: ['done'] } },
+    right: { id: 'right', data: { type: 'grid_column', parent_id: 'grid', children: ['open'] } },
+    done: {
+      id: 'done',
+      data: {
+        type: 'todo', parent_id: 'left', children: [], done: true,
+        text: { initialAttributedTexts: { text: { 0: 'LAYOUT-COL-A' } } },
+      },
+    },
+    open: {
+      id: 'open',
+      data: {
+        type: 'todo', parent_id: 'right', children: [], done: false,
+        text: { initialAttributedTexts: { text: { 0: 'LAYOUT-COL-B' } } },
+      },
+    },
+  };
+  const parsed = clientVarsDataToMarkdown({ block_map: blockMap, meta_map: {} });
+  assert.match(parsed.markdown, /- \[x\] LAYOUT-COL-A/);
+  assert.match(parsed.markdown, /- \[ \] LAYOUT-COL-B/);
+  assert.equal(parsed.stats.unknownBlocks, 0);
+});
+
+test('unparseable sheet SVG is explicitly routed to screenshot fallback', () => {
+  const blockMap = {
+    page: { id: 'page', data: { type: 'page', children: ['sheet'] } },
+    sheet: {
+      id: 'sheet',
+      data: { type: 'sheet', parent_id: 'page', children: [], token: 'sheet-token' },
+    },
+  };
+  const parsed = clientVarsDataToMarkdown(
+    { block_map: blockMap, meta_map: {} },
+    '<div id="ssr-sheet-svg"><svg><text>not a grid</text></svg></div>',
+  );
+  assert.match(parsed.markdown, /ssrsheet:\/\/sheet-token\/sheet/);
+  assert.deepEqual(parsed.sheetFallbacks, [{ token: 'sheet-token', blockId: 'sheet' }]);
+  assert.equal(parsed.stats.sheets, 1);
+  assert.equal(parsed.stats.sheetTables, 0);
+});
+
+test('a partial sheet viewport is routed to screenshot fallback', () => {
+  const blockMap = {
+    page: { id: 'page', data: { type: 'page', children: ['sheet'] } },
+    sheet: { id: 'sheet', data: { type: 'sheet', parent_id: 'page', token: 'sheet-token' } },
+  };
+  const horizontal = [0, 20, 40, 60]
+    .map((y) => `<rect x="0" y="${y}" width="120" height="1"/>`).join('');
+  const vertical = [0, 20, 70, 120]
+    .map((x) => `<rect x="${x}" y="0" width="1" height="60"/>`).join('');
+  const labels = [
+    '<text x="30" y="10">G</text>', '<text x="80" y="10">H</text>',
+    '<text x="5" y="30">3</text>', '<text x="30" y="30">partial</text>',
+    '<text x="5" y="50">4</text>', '<text x="30" y="50">tail</text>',
+  ].join('');
+  const html = `<div id="ssr-sheet-svg"><svg>${horizontal}${vertical}${labels}</svg></div>`;
+  const parsed = clientVarsDataToMarkdown({ block_map: blockMap, meta_map: {} }, html);
+  assert.match(parsed.markdown, /ssrsheet:\/\/sheet-token\/sheet/);
+  assert.deepEqual(parsed.sheetFallbacks, [{ token: 'sheet-token', blockId: 'sheet' }]);
+  assert.equal(parsed.stats.sheetTables, 0);
+});

@@ -13,13 +13,13 @@ An export is not considered complete merely because a file was written. Every ru
 | Body | Non-empty extracted body | Empty body is incomplete |
 | Pagination | SSR explicitly reports `has_more = false` | Unknown is degraded; `has_more = true` is incomplete |
 | Images and attachments | Exported count equals detected count | Any missing resource is incomplete |
-| Whiteboards and sheet fallbacks | Screenshot count equals detected fallback count | Skipped or failed screenshot is incomplete |
+| Whiteboards and sheet fallbacks | No visual fallback is required | A complete screenshot set is degraded because structured/offscreen completeness is unproven; a missing screenshot is incomplete |
 | Comments | Comment endpoints were checked successfully | Unavailable or failed check is degraded |
 | Block recognition | No unknown DOM block signatures | Unknown signatures are degraded |
 
 ## Background behavior
 
-The default mode never brings Chrome to the foreground. Canvas-only whiteboards and sheet fallbacks are therefore skipped and reported as `incomplete`. `--allow-focus` explicitly permits the temporary foreground screenshot path.
+The default mode never brings Chrome to the foreground. Canvas-only whiteboards and sheet fallbacks are captured in hidden Chrome targets with focus emulation and exact block targeting. Successful screenshots remain `degraded` evidence rather than `complete`; `--allow-focus` is retained only as a compatibility flag.
 
 ## Process exit codes
 

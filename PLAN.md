@@ -87,10 +87,9 @@ AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，与日常 Chrome 可�
 >   原句定位失败（跨富文本节点等）时标记落在块尾。
 >   参数坑：comment/batch 必须 need_reply/need_reaction=true，CSRF 头是 X-CSRFToken
 >   （值取 _csrf_token cookie）；锚点 blockID 是 data-record-id（非 data-block-id）
-> - 画板: 无 SSR 数据且 canvas 只在可见时绘制 —— 唯一可行方案是后台开页 → bringToFront →
->   元素截图（`docx-whiteboard-block`）嵌入 md；此过程 AI Chrome 窗口会短暂切到前台，
->   坐标映射运行时 id ≠ block_map id，需按 DOM 顺序与 SSR 顺序配对；僵尸标签页堆积会把渲染进程拖垮，
->   调试/运行完务必关页
+> - 画板/不可解析 sheet: 后台创建隐藏 Chrome target，启用 focus emulation，按 SSR block id 精确定位并滚动元素后截图；
+>   不再调用 `bringToFront`，不会抢占用户焦点。截图只能证明可视内容，所以完整性协议统一判为 `degraded`；截图缺失判为 `incomplete`。
+>   坐标映射运行时 id 仍可能不同于 block_map id，需保留 DOM 顺序兜底；调试/运行完务必关闭隐藏页。
 
 - [ ] CDP `Network.enable` 录制页面所有 XHR/fetch 响应
 - [ ] 定位含文档 block 树的接口（响应里 grep 已知标题/正文片段即可确认）

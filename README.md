@@ -12,6 +12,6 @@ Every run writes `export-report.json` with a `complete`, `degraded`, or `incompl
 
 The real-document coverage matrix is tracked separately in [Feishu Export Test Corpus](TEST-CORPUS.md). Prepared local fixtures do not count as live coverage.
 
-The exporter runs without taking window focus by default. Canvas-only whiteboard and sheet screenshots require the explicit `--allow-focus` option.
+The exporter runs without taking window focus by default, including canvas-only whiteboard and sheet screenshots. `--allow-focus` remains accepted only for compatibility.
 
 Implementation notes and current limitations are tracked in [PLAN.md](PLAN.md).

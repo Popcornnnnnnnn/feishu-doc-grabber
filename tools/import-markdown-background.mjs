@@ -90,7 +90,19 @@ try {
 
   const alreadyExists = await page.evaluate((title) =>
     (document.body.innerText || '').split('\n').some((line) => line.trim() === title), expectedTitle);
-  if (alreadyExists) throw new Error(`A document named "${expectedTitle}" already exists.`);
+  if (alreadyExists) {
+    const existingUrl = await page.evaluate((title, origin) => {
+      const match = [...document.querySelectorAll('[data-node-uid*="wikiToken="]')].find((element) =>
+        (element.innerText || element.textContent || '').split('\n').some((line) => line.trim() === title));
+      const uid = match?.getAttribute('data-node-uid') || '';
+      const token = /(?:^|&)wikiToken=([^&]+)/.exec(uid)?.[1];
+      return token ? `${origin}/wiki/${token}` : null;
+    }, expectedTitle, homeUrl.origin);
+    console.log(JSON.stringify({ submitted: false, title: expectedTitle, url: existingUrl }));
+    await page.close().catch(() => {});
+    browser.disconnect();
+    process.exit(existingUrl ? 0 : 1);
+  }
 
   const uploadRect = await page.evaluate(() => {
     const upload = document.querySelectorAll('[data-selector="workspace-next-create_new_file"]')[1];
