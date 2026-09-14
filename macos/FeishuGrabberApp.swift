@@ -489,6 +489,102 @@ private struct DocumentRow: View {
     }
 }
 
+private final class PlaceholderTextView: NSTextView {
+    var placeholder = "" {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard string.isEmpty, !placeholder.isEmpty, let font else { return }
+        (placeholder as NSString).draw(
+            at: textContainerOrigin,
+            withAttributes: [
+                .font: font,
+                .foregroundColor: NSColor.placeholderTextColor
+            ]
+        )
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+private struct LinkTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+
+        let textView = PlaceholderTextView(frame: .zero)
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.drawsBackground = false
+        textView.allowsUndo = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .controlAccentColor
+        textView.textContainerInset = NSSize(width: 12, height: 12)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.placeholder = placeholder
+        textView.string = text
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? PlaceholderTextView else { return }
+        context.coordinator.parent = self
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.placeholder = placeholder
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .controlAccentColor
+        textView.needsDisplay = true
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: LinkTextEditor
+
+        init(parent: LinkTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model = ExportModel()
     @AppStorage("appearanceMode") private var appearanceRawValue = AppearanceMode.system.rawValue
@@ -604,20 +700,10 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $model.urlsText)
-                    .font(.system(size: 13, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(9)
-                if model.urlsText.isEmpty {
-                    Text("https://example.feishu.cn/wiki/…")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 14)
-                        .padding(.top, 15)
-                        .allowsHitTesting(false)
-                }
-            }
+            LinkTextEditor(
+                text: $model.urlsText,
+                placeholder: "https://example.feishu.cn/wiki/…"
+            )
             .frame(height: 138)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             .overlay(
