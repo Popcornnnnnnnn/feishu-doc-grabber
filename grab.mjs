@@ -20,9 +20,11 @@ import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
 import {
   clientVarsDataToMarkdown,
+  countMarkdownImagesInHtmlTables,
   extractClientVars,
   htmlToMarkdown,
   mergeClientVarsPages,
+  renderMarkdownImagesInHtmlTables,
 } from './lib/ssr.mjs';
 import { evaluateIntegrity } from './lib/integrity.mjs';
 import {
@@ -616,6 +618,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
         }
       }
       if (mode === 'md') body = applyComments(body, threads);
+      body = renderMarkdownImagesInHtmlTables(body);
+      const markdownImagesInHtmlTables = countMarkdownImagesInHtmlTables(body);
       writeFileSync(file, `# ${title}\n\n${body}\n`);
       console.log(`✓ SSR 解析成功: 块 ${parsed.stats.blocks}（${JSON.stringify(parsed.stats.types)}），sheet SVG ${parsed.stats.sheets}`);
       if (parsed.stats.hasMore) console.log('⚠ 分页未拉取完，结果不完整');
@@ -638,6 +642,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           sheetFallbacks: { expected: sheetFallbacks.length, exported: sheetFallbackCount },
         },
         comments: { status: commentStatus, ...commentStats(threads), error: commentError },
+        renderability: { status: 'checked', markdownImagesInHtmlTables },
         unknownBlocks: parsed.stats.unknownBlocks,
         blocks: parsed.stats.blocks,
         blockTypes: parsed.stats.types,
@@ -734,6 +739,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     }
 
     if (mode === 'md') body = applyComments(body, threads);
+    body = renderMarkdownImagesInHtmlTables(body);
+    const markdownImagesInHtmlTables = countMarkdownImagesInHtmlTables(body);
 
     let file;
     if (mode === 'md') {
@@ -763,6 +770,7 @@ ${body}`);
         sheetFallbacks: { expected: 0, exported: 0 },
       },
       comments: { status: commentStatus, ...commentStats(threads), error: commentError },
+      renderability: { status: 'checked', markdownImagesInHtmlTables },
       unknownBlocks: data.unknowns.length,
       blocks: data.blockCount,
       blockTypes: null,
@@ -1010,6 +1018,7 @@ async function main() {
       bodyPresent: Boolean(result.ok),
       pagination: 'unknown',
       comments: { status: args.format === 'md' ? 'unknown' : 'not_applicable' },
+      renderability: { status: result.ok ? 'not_applicable' : 'unknown' },
     }),
   }));
   const report = {

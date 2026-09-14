@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blockMapToMarkdown, clientVarsDataToMarkdown } from '../lib/ssr.mjs';
+import {
+  blockMapToMarkdown,
+  clientVarsDataToMarkdown,
+  renderMarkdownImagesInHtmlTables,
+} from '../lib/ssr.mjs';
 
 const text = (value, parent) => ({
   id: `text-${value}`,
@@ -54,6 +58,38 @@ test('native table follows row and column ids and preserves merged cells', () =>
   assert.match(markdown, /<td>A1<\/td>/);
   assert.match(markdown, /<td>B1<\/td>/);
   assert.match(markdown, /<td colspan="2">MERGED-C2<\/td>/);
+});
+
+test('images inside HTML tables use HTML image tags while outside Markdown stays unchanged', () => {
+  const blocks = {
+    page: { id: 'page', data: { type: 'page', children: ['table'] } },
+    table: {
+      id: 'table',
+      data: {
+        type: 'table',
+        parent_id: 'page',
+        rows_id: ['r1'],
+        columns_id: ['c1'],
+        cell_set: { r1c1: { block_id: 'cell', merge_info: { row_span: 1, col_span: 1 } } },
+      },
+    },
+    cell: { id: 'cell', data: { type: 'table_cell', parent_id: 'table', children: ['image'] } },
+    image: {
+      id: 'image',
+      data: {
+        type: 'image',
+        parent_id: 'cell',
+        children: [],
+        image: { token: 'image-token', name: 'field-photo.jpg' },
+      },
+    },
+  };
+  const markdown = blockMapToMarkdown(blocks, new Map())[0].md;
+  assert.match(markdown, /<td><img src="ssrimg:\/\/image-token\/image" alt="field-photo"><\/td>/);
+  assert.doesNotMatch(markdown, /!\[/);
+
+  const mixed = renderMarkdownImagesInHtmlTables(`${markdown}\n\n![outside](assets/outside.jpg)`);
+  assert.match(mixed, /!\[outside\]\(assets\/outside\.jpg\)/);
 });
 
 test('file card view wrapper is recognized and renders its file child', () => {

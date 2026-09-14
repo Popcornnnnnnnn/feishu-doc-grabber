@@ -15,6 +15,7 @@ function fullEvidence(overrides = {}) {
       sheetFallbacks: { expected: 0, exported: 0 },
     },
     comments: { status: 'checked', threads: 1 },
+    renderability: { status: 'checked', markdownImagesInHtmlTables: 0 },
     unknownBlocks: 0,
     ...overrides,
   };
@@ -74,4 +75,12 @@ test('fully structured sheets with formula expressions can be complete', () => {
   const report = evaluateIntegrity(evidence);
   assert.equal(report.verdict, 'complete');
   assert.equal(report.checks.find((check) => check.name === 'structuredSheets').status, 'pass');
+});
+
+test('Markdown images left inside HTML tables are incomplete', () => {
+  const report = evaluateIntegrity(fullEvidence({
+    renderability: { status: 'checked', markdownImagesInHtmlTables: 2 },
+  }));
+  assert.equal(report.verdict, 'incomplete');
+  assert.equal(report.checks.find((check) => check.name === 'renderability').status, 'fail');
 });
