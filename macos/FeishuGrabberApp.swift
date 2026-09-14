@@ -46,6 +46,45 @@ enum AuthenticationState: Equatable {
     case unknown
 }
 
+private struct EngineProgressEvent: Decodable {
+    let total: Int
+    let completed: Int
+    let current: Int
+    let stage: String
+    let message: String
+}
+
+struct ExportProgressState {
+    let total: Int
+    let completed: Int
+    let current: Int
+    let stage: String
+    let message: String
+
+    var fraction: Double {
+        guard total > 0 else { return 0 }
+        let stageFraction: Double
+        switch stage {
+        case "preparing": stageFraction = 0.04
+        case "reading": stageFraction = 0.14
+        case "body": stageFraction = 0.34
+        case "tables": stageFraction = 0.48
+        case "rendering": stageFraction = 0.52
+        case "comments": stageFraction = 0.64
+        case "attachments": stageFraction = 0.78
+        case "integrity": stageFraction = 0.92
+        case "finished", "failed": stageFraction = 0
+        default: stageFraction = 0.08
+        }
+        let inFlight = completed < total ? stageFraction : 0
+        return min(1, (Double(completed) + inFlight) / Double(total))
+    }
+
+    var counter: String {
+        "\(min(max(current, 1), max(total, 1)))/\(max(total, 1))"
+    }
+}
+
 @MainActor
 final class ExportModel: ObservableObject, @unchecked Sendable {
     @Published var urlsText = ""
@@ -57,12 +96,14 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
     @Published var isCheckingAuth = false
     @Published var authState: AuthenticationState = .checking
     @Published var showLog = false
+    @Published private(set) var exportProgress: ExportProgressState?
 
     private var activeProcess: Process?
     private var authProbeProcess: Process?
     private var authPollingTask: Task<Void, Never>?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
+    private var stdoutLineBuffer = ""
     private(set) var currentRunFolder: URL?
     private(set) var currentReportURL: URL?
 
@@ -128,7 +169,7 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         }
         do {
             let folder = try makeRunFolder(prefix: "Feishu Export")
-            startExport(arguments: urls + ["--out", folder.path], folder: folder)
+            startExport(arguments: urls + ["--out", folder.path], folder: folder, expectedTotal: urls.count)
         } catch {
             message = "无法创建输出目录：\(error.localizedDescription)"
         }
@@ -138,7 +179,11 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         guard !isRunning, retryCount > 0, let report = currentReportURL else { return }
         do {
             let folder = try makeRunFolder(prefix: "Feishu Retry")
-            startExport(arguments: ["--retry", report.path, "--out", folder.path], folder: folder)
+            startExport(
+                arguments: ["--retry", report.path, "--out", folder.path],
+                folder: folder,
+                expectedTotal: retryCount
+            )
         } catch {
             message = "无法创建重试目录：\(error.localizedDescription)"
         }
@@ -218,14 +263,22 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         return folder
     }
 
-    private func startExport(arguments: [String], folder: URL) {
+    private func startExport(arguments: [String], folder: URL, expectedTotal: Int) {
         currentRunFolder = folder
         currentReportURL = nil
         documents = []
         message = "正在后台导出…"
+        exportProgress = ExportProgressState(
+            total: expectedTotal,
+            completed: 0,
+            current: 1,
+            stage: "preparing",
+            message: "准备导出"
+        )
         launchNode(script: grabScript, arguments: arguments) { [weak self] code in
             guard let self else { return }
             self.loadReport(from: folder)
+            self.exportProgress = nil
             if code == 0 {
                 self.message = "导出完成，所有文档均为 complete"
             } else if code == 2 {
@@ -335,6 +388,41 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func consumeStandardOutput(_ text: String, parsesProgress: Bool) {
+        guard parsesProgress else {
+            logText.append(text)
+            return
+        }
+
+        stdoutLineBuffer.append(text)
+        while let newline = stdoutLineBuffer.firstIndex(of: "\n") {
+            let line = String(stdoutLineBuffer[..<newline])
+            stdoutLineBuffer.removeSubrange(...newline)
+            if !consumeProgressLine(line) {
+                logText.append(line)
+                logText.append("\n")
+            }
+        }
+    }
+
+    private func consumeProgressLine(_ line: String) -> Bool {
+        let prefix = "@@FEISHU_PROGRESS@@"
+        guard line.hasPrefix(prefix),
+              let data = String(line.dropFirst(prefix.count)).data(using: .utf8),
+              let event = try? JSONDecoder().decode(EngineProgressEvent.self, from: data) else {
+            return false
+        }
+        exportProgress = ExportProgressState(
+            total: event.total,
+            completed: event.completed,
+            current: event.current,
+            stage: event.stage,
+            message: event.message
+        )
+        message = "正在导出 \(exportProgress?.counter ?? "") · \(event.message)"
+        return true
+    }
+
     private func launchNode(script: URL, arguments: [String], completion: @escaping (Int32) -> Void) {
         guard FileManager.default.isExecutableFile(atPath: nodeExecutable.path) else {
             message = "App 内缺少 Node 运行时，请重新构建或安装"
@@ -346,7 +434,9 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         }
 
         logText = ""
+        stdoutLineBuffer = ""
         isRunning = true
+        let parsesProgress = script.lastPathComponent == "grab.mjs"
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
@@ -356,15 +446,24 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         process.standardOutput = stdout
         process.standardError = stderr
 
-        process.environment = processEnvironment()
+        var environment = processEnvironment()
+        if parsesProgress {
+            environment["FEISHU_PROGRESS"] = "1"
+        }
+        process.environment = environment
 
-        let consume: @Sendable (FileHandle) -> Void = { [weak self] handle in
+        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            DispatchQueue.main.async {
+                self?.consumeStandardOutput(text, parsesProgress: parsesProgress)
+            }
+        }
+        stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             DispatchQueue.main.async { self?.logText.append(text) }
         }
-        stdout.fileHandleForReading.readabilityHandler = consume
-        stderr.fileHandleForReading.readabilityHandler = consume
 
         process.terminationHandler = { [weak self] task in
             DispatchQueue.main.async {
@@ -585,6 +684,28 @@ private struct LinkTextEditor: NSViewRepresentable {
     }
 }
 
+struct ExportProgressView: View {
+    let progress: ExportProgressState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("正在导出 \(progress.counter)")
+                    .font(.caption.weight(.medium))
+                Text(progress.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: progress.fraction)
+                .progressViewStyle(.linear)
+                .controlSize(.small)
+                .accessibilityLabel("导出进度")
+                .accessibilityValue("\(progress.counter)，\(progress.message)")
+        }
+        .frame(maxWidth: 360)
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model = ExportModel()
     @AppStorage("appearanceMode") private var appearanceRawValue = AppearanceMode.system.rawValue
@@ -732,12 +853,16 @@ struct ContentView: View {
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
 
             HStack(spacing: 12) {
-                Image(systemName: model.authState == .signedIn ? "checkmark.circle" : "info.circle")
-                    .foregroundStyle(.secondary)
-                Text(model.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if model.isRunning, let progress = model.exportProgress {
+                    ExportProgressView(progress: progress)
+                } else {
+                    Image(systemName: model.authState == .signedIn ? "checkmark.circle" : "info.circle")
+                        .foregroundStyle(.secondary)
+                    Text(model.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 if model.isRunning {
                     Button("取消", role: .destructive) { model.cancel() }

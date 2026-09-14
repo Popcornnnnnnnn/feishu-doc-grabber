@@ -39,6 +39,12 @@ import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
 const ALLOWED_PATH = /^\/(docx|wiki|docs)\//i;
 const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+const PROGRESS_PREFIX = '@@FEISHU_PROGRESS@@';
+
+function emitProgress(event) {
+  if (process.env.FEISHU_PROGRESS !== '1') return;
+  process.stdout.write(`${PROGRESS_PREFIX}${JSON.stringify(event)}\n`);
+}
 
 // ---------- CLI ----------
 
@@ -473,8 +479,10 @@ async function captureStructuredSheets(browser, url, requestedSheets) {
 
 async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) {
   mkdirSync(outDir, { recursive: true });
+  const onProgress = options.onProgress || (() => {});
 
   // token 规范化（SSR/DOM 两条路线都要用 objToken 拉评论）
+  onProgress('reading', '读取文档信息');
   const canon = await canonicalizeUrl(browser, url);
   const canonUrl = canon.url;
   const objToken = canon.objToken;
@@ -504,6 +512,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       }
     }
     if (parsed?.markdown?.trim()) {
+      onProgress('body', '解析正文');
       const rawTitle = parsed.title || /<title>([^<]*)<\/title>/.exec(html)?.[1] || 'untitled';
       const title = safeName(rawTitle).replace(/ - (飞书云文档|Feishu Docs|飞书)$/, '');
       const file = join(outDir, `${title}.md`);
@@ -511,6 +520,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let sheetFallbacks = parsed.sheetFallbacks || [];
       let structuredSheets = [];
       if (parsed.sheets.length) {
+        onProgress('tables', '处理表格');
         console.log(`→ 后台读取 ${parsed.sheets.length} 个 Sheet 的结构化数据…`);
         structuredSheets = await captureStructuredSheets(browser, canonUrl, parsed.sheets, timeoutMs);
         for (const result of structuredSheets) {
@@ -541,6 +551,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let commentError = null;
       let resolveTop = (blockId) => blockId;
       try {
+        onProgress('comments', '读取评论');
         const cvJson = clientVarsData ? null : extractClientVars(html);
         const bmap = clientVarsData?.block_map ?? (cvJson ? JSON.parse(cvJson)?.data?.block_map : null);
         const parentOf = {};
@@ -578,6 +589,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let sheetFallbackCount = 0;
       const needMedia = parsed.images.length || parsed.files.length || parsed.whiteboards.length || sheetsNeedShot;
       if (needMedia) {
+        onProgress('attachments', '处理图片和附件');
         console.log(`→ 下载图片 ${parsed.images.length} 张 / 附件 ${parsed.files.length} 个 / 画板 ${parsed.whiteboards.length} 块…`);
         const map = await downloadSsrMedia(browser, canonUrl, parsed.images, parsed.files, join(outDir, 'assets'), outDir);
         imageCount = parsed.images.filter((img) => map.has(`ssrimg://${img.token}/${img.blockId}`)).length;
@@ -608,6 +620,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       console.log(`✓ SSR 解析成功: 块 ${parsed.stats.blocks}（${JSON.stringify(parsed.stats.types)}），sheet SVG ${parsed.stats.sheets}`);
       if (parsed.stats.hasMore) console.log('⚠ 分页未拉取完，结果不完整');
       console.log(`✓ 已导出: ${file}`);
+      onProgress('integrity', '检查导出完整性');
       const integrity = evaluateIntegrity({
         route: 'ssr',
         bodyPresent: Boolean(body.trim()),
@@ -635,12 +648,14 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     if (!options.allowRender) {
       throw new Error('SSR 数据不可用；零渲染后台模式不会打开 Chrome 页面。可显式添加 --render-fallback 进行 DOM 兜底');
     }
+    onProgress('rendering', '使用浏览器兼容模式');
     console.log('⚠ SSR 数据不可用（可能需要滚动加载），回落 DOM 提取…');
   }
 
   // —— 路线 2（Phase B）: 打开页面 + 滚动 + DOM 提取 ——
   const page = await newBgPage(browser);
   try {
+    onProgress('rendering', '渲染文档页面');
     await openDoc(page, url, timeoutMs);
     await scrollDoc(page);
     const title = await docTitle(page);
@@ -652,6 +667,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     let commentError = null;
     if (mode === 'md' && objToken) {
       try {
+        onProgress('comments', '读取评论');
         threads = await fetchCommentThreads(browser, objToken, canonUrl);
         if (threads.length) {
           await page.evaluate((ths) => {
@@ -695,6 +711,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       }
     }
 
+    onProgress('body', '提取正文');
     console.log(`→ 提取 DOM（${mode}）…`);
     const data = await page.evaluate(`(${IN_PAGE_EXTRACT})(${JSON.stringify({ mode })})`);
 
@@ -706,6 +723,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     const parts = mode === 'md' ? (data.blocks ?? [{ id: null, md: data.markdown }]) : [{ id: null, md: data.html }];
     let imageCount = 0;
     if (data.images.length) {
+      onProgress('attachments', '处理图片和附件');
       console.log(`→ 下载图片 ${data.images.length} 张…`);
       const assetsDir = join(outDir, 'assets');
       const map = await downloadImages(browser, url, data.images, assetsDir, 'assets');
@@ -733,6 +751,7 @@ ${body}`);
     if (mode === 'md' && data.unknowns.length) {
       console.log('ℹ 未识别块签名（迭代 clean.mjs 用）:', JSON.stringify(data.unknowns.slice(0, 10)));
     }
+    onProgress('integrity', '检查导出完整性');
     const integrity = evaluateIntegrity({
       route: 'dom',
       bodyPresent: Boolean(body.trim()),
@@ -935,18 +954,44 @@ async function main() {
     return;
   }
   console.log(`共 ${urls.length} 篇 · 格式 ${args.format} · 输出 ${args.out}`);
+  emitProgress({ total: urls.length, completed: 0, current: 1, stage: 'preparing', message: '准备导出' });
 
   const browser = await connect();
   const results = [];
   try {
-    for (const url of urls) {
+    for (const [index, url] of urls.entries()) {
+      const updateProgress = (stage, message) => emitProgress({
+        total: urls.length,
+        completed: index,
+        current: index + 1,
+        stage,
+        message,
+      });
+      updateProgress('reading', '读取文档信息');
       try {
         const fn = args.format === 'pdf' ? grabPdf
           : args.format === 'capture' ? grabCapture
-          : (b, u, o, t) => grabExtract(b, u, o, t, args.format, { allowRender: args.allowRender });
+          : (b, u, o, t) => grabExtract(b, u, o, t, args.format, {
+            allowRender: args.allowRender,
+            onProgress: updateProgress,
+          });
         results.push(await withRetry(() => fn(browser, url, args.out, args.timeoutMs)));
+        emitProgress({
+          total: urls.length,
+          completed: index + 1,
+          current: index + 1,
+          stage: 'finished',
+          message: '文档处理完成',
+        });
       } catch (e) {
         results.push({ url, ok: false, error: e.message });
+        emitProgress({
+          total: urls.length,
+          completed: index + 1,
+          current: index + 1,
+          stage: 'failed',
+          message: '文档处理失败',
+        });
       }
     }
   } finally {
