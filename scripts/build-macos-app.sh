@@ -3,6 +3,7 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "$0")/.." && pwd)"
 app_path="$root_dir/dist/Feishu Grabber.app"
+legacy_app_path="$root_dir/dist/FeishuGrabber.app"
 contents="$app_path/Contents"
 resources="$contents/Resources"
 engine="$resources/engine"
@@ -82,6 +83,13 @@ cp -R "$root_dir/node_modules" "$engine/node_modules"
 
 codesign --force --deep --sign - "$app_path"
 codesign --verify --deep --strict "$app_path"
+
+if [[ -e "$legacy_app_path" || -L "$legacy_app_path" ]]; then
+  case "$legacy_app_path" in
+    "$root_dir/dist/FeishuGrabber.app") /bin/rm -rf -- "$legacy_app_path" ;;
+    *) echo "Refusing to remove unexpected legacy path: $legacy_app_path" >&2; exit 2 ;;
+  esac
+fi
 
 echo "Built: $app_path"
 du -sh "$app_path"
