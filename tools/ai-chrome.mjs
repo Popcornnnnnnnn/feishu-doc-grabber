@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * ai-chrome — AI 专属 Chrome 实例管理
+ * ai-chrome — AI 专属 Chrome for Testing 实例管理
  *
  * 独立 user-data-dir（~/.ai-chrome-profile）+ 调试端口 9222，
- * 与日常 Chrome 完全隔离、可同时运行。默认以 headless 模式启动，不显示窗口。
+ * 使用独立应用身份，与日常 Chrome 完全隔离。默认以 headless 模式启动，不显示窗口。
  *
  * 用法:
  *   node tools/ai-chrome.mjs login        # 首次使用：显式打开窗口登录飞书
@@ -18,7 +18,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -26,7 +26,17 @@ import puppeteer from 'puppeteer-core';
 export const AI_PORT = Number(process.env.AI_CHROME_PORT || 9222);
 export const AI_PROFILE = process.env.AI_CHROME_PROFILE || join(homedir(), '.ai-chrome-profile');
 export const CHROME_BIN =
-  process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  process.env.CHROME_FOR_TESTING_BIN ||
+  '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
+
+function validateAutomationBrowser() {
+  if (basename(CHROME_BIN) !== 'Google Chrome for Testing') {
+    throw new Error('自动化只允许使用 Google Chrome for Testing；不会回退到日常 Google Chrome');
+  }
+  if (!existsSync(CHROME_BIN)) {
+    throw new Error(`未安装 Google Chrome for Testing: ${CHROME_BIN}`);
+  }
+}
 
 export async function reachable(port = AI_PORT) {
   try {
@@ -40,9 +50,10 @@ export async function reachable(port = AI_PORT) {
 /** 启动 AI 实例（幂等）。默认 headless；只有显式 login/open 才显示窗口。 */
 export async function start({ silent = false, headed = false, initialUrl = 'about:blank' } = {}) {
   if (await reachable()) {
-    if (!silent) console.log(`✓ AI Chrome 已在运行 (127.0.0.1:${AI_PORT})`);
+    if (!silent) console.log(`✓ AI Chrome for Testing 已在运行 (127.0.0.1:${AI_PORT})`);
     return false;
   }
+  validateAutomationBrowser();
   const chromeArgs = [
     `--user-data-dir=${AI_PROFILE}`,
     `--remote-debugging-port=${AI_PORT}`,
@@ -61,12 +72,12 @@ export async function start({ silent = false, headed = false, initialUrl = 'abou
     await new Promise((r) => setTimeout(r, 500));
     if (await reachable()) {
       if (!silent) {
-        console.log(`✓ AI Chrome 已${headed ? '可见' : '在后台'}启动 (${AI_PROFILE})`);
+        console.log(`✓ AI Chrome for Testing 已${headed ? '可见' : '在后台'}启动 (${AI_PROFILE})`);
       }
       return true;
     }
   }
-  throw new Error(`AI Chrome 启动失败，请手动执行: "${CHROME_BIN}" --user-data-dir=${AI_PROFILE} --remote-debugging-port=${AI_PORT}`);
+  throw new Error(`AI Chrome for Testing 启动失败，请手动执行: "${CHROME_BIN}" --user-data-dir=${AI_PROFILE} --remote-debugging-port=${AI_PORT}`);
 }
 
 /** 供脚本调用：确保实例在运行，无输出 */

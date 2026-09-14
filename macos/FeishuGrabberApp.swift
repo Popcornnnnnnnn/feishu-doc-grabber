@@ -99,11 +99,11 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         guard !isRunning else { return }
         authPollingTask?.cancel()
         authState = .checking
-        message = "正在打开隔离的 Chrome 登录窗口…"
+        message = "正在打开隔离的 Chrome for Testing 登录窗口…"
         launchNode(script: chromeScript, arguments: ["login"]) { [weak self] code in
             guard let self else { return }
             if code == 0 {
-                self.message = "请在 Chrome 中完成登录，完成后会自动确认"
+                self.message = "请在 Chrome for Testing 中完成登录，完成后会自动确认"
                 self.beginLoginPolling()
             } else {
                 self.authState = .unknown

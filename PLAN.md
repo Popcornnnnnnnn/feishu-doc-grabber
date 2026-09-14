@@ -6,13 +6,13 @@
 ## 约束与前提
 
 - 无管理员权限，不能用企业自建应用 + Open API（export_tasks 路线搁置，以后有权限可秒切）
-- 依赖日常使用的 Chrome 登录态（工具不做登录流程）
+- 依赖独立 Chrome for Testing 的登录态，不使用日常 Google Chrome
 - 用法自用，抓取内容不分发（水印可溯源）
 
 ## 总体架构
 
 ```
-AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，默认 headless，与日常 Chrome 隔离）
+AI 专属 Chrome for Testing（独立 profile: ~/.ai-chrome-profile，默认 headless，与日常 Chrome 隔离）
   └── --remote-debugging-port=9222
         └── puppeteer-core 连接（tools/ai-chrome.mjs 负责 start/status/open/stop/ensure）
               ├── A. 打开文档 → 自动滚动加载 → Page.printToPDF
@@ -21,6 +21,7 @@ AI 专属 Chrome（独立 profile: ~/.ai-chrome-profile，默认 headless，与�
 ```
 
 浏览器策略（已定）:
+- 自动化只使用 `/Applications/Google Chrome for Testing.app`；找不到时明确失败，不回退到日常 Google Chrome
 - 不复用日常 Chrome profile，也不拷贝其登录态；AI 实例首次使用时手动登录一次飞书，登录态持久保存在独立 profile
 - `start` 和自动导出默认 headless；只有显式 `login`、`open` 或 `--render-fallback` 才允许出现可见页面
 - 原则: AI profile 里只登录愿意交给 AI 使用的账号（工作账号/低敏站点），不放银行、主邮箱等高敏账户
@@ -138,7 +139,7 @@ AI_CHROME_PROFILE=~/.feishu-export-test-profile AI_CHROME_PORT=9223 node grab.mj
 feishu-doc-grabber/
   PLAN.md
   grab.mjs               # Phase A 入口
-  tools/ai-chrome.mjs    # AI 专属 Chrome 实例管理（start/status/open/stop/ensure）
+  tools/ai-chrome.mjs    # AI 专属 Chrome for Testing 实例管理（start/status/open/stop/ensure）
   lib/scroll.mjs         # 自动滚动/等待策略
   lib/clean.mjs          # Phase B DOM 清洗与转换（待做）
   lib/blocks.mjs         # Phase C block 解析（可选）

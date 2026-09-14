@@ -8,7 +8,7 @@
  *          --format html   清洗后的正文 HTML
  * Phase C: --format capture  CDP 录制全部网络响应到 out/capture- 目录，用于定位 block JSON
  *
- * 浏览器: 自动连接/拉起 AI 专属 Chrome 实例（tools/ai-chrome.mjs）
+ * 浏览器: 自动连接/拉起 AI 专属 Chrome for Testing 实例（tools/ai-chrome.mjs）
  */
 
 import puppeteer from 'puppeteer-core';
@@ -80,7 +80,7 @@ function usage() {
   feishu-grab --list <urls.txt>   批量（每行一个 URL，# 注释）
   feishu-grab --retry <report>    重跑上次未 complete 的文档
 
-浏览器: 自动使用 AI 专属 Chrome（独立 profile ~/.ai-chrome-profile）
+浏览器: 自动使用 AI 专属 Chrome for Testing（独立 profile ~/.ai-chrome-profile）
   feishu-chrome login | start | status | open <url> | stop
 `);
 }
@@ -89,7 +89,7 @@ function usage() {
 
 async function connect() {
   if (!(await reachable())) {
-    console.log('→ AI Chrome 未运行，正在拉起…');
+    console.log('→ AI Chrome for Testing 未运行，正在拉起…');
     await ensureRunning();
   }
   const res = await fetch(`http://127.0.0.1:${AI_PORT}/json/version`);
