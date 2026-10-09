@@ -2,18 +2,18 @@ class FeishuGrab < Formula
   desc "Export Feishu and Lark documents using your daily Chrome session"
   homepage "https://github.com/Popcornnnnnnnn/feishu-doc-grabber"
   url "https://github.com/Popcornnnnnnnn/feishu-doc-grabber.git",
-      tag: "v1.3.0",
-      revision: "dd6130ad1e5a68a417b8f8a9d232b260397443f3"
-  version "1.3.0"
+      tag:      "v1.3.1",
+      revision: "647f01f0acecd757cb68df6dbce006a649cdd141"
+  version "1.3.1"
   license "ISC"
 
-  depends_on "node"
   depends_on :macos
+  depends_on "node"
 
   def install
     libexec.install "cli.mjs", "grab.mjs", "lib", "package.json", "package-lock.json"
     (libexec/"tools").install "tools/ai-chrome.mjs"
-    ENV.prepend_path "PATH", Formula["node"].opt_libexec/"bin"
+    ENV.prepend_path "PATH", formula_opt_libexec("node")/"bin"
     cd libexec do
       system "npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"
     end
@@ -21,7 +21,7 @@ class FeishuGrab < Formula
     { "feishu-grab" => "cli.mjs", "feishu-chrome" => "tools/ai-chrome.mjs" }.each do |name, script|
       (bin/name).write <<~SH
         #!/bin/sh
-        exec "#{Formula["node"].opt_bin}/node" "#{libexec/script}" "$@"
+        exec "#{formula_opt_bin("node")}/node" "#{libexec/script}" "$@"
       SH
     end
     man1.install "docs/feishu-grab.1"
