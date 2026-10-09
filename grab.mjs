@@ -16,6 +16,8 @@ import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { DailyChrome } from './lib/daily-chrome.mjs';
 import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
 import {
@@ -53,13 +55,16 @@ function emitProgress(event) {
 function parseArgs(argv) {
   const args = {
     urls: [], out: join(homedir(), 'Downloads'), list: null, retry: null,
-    format: 'md', formatExplicit: false, timeoutMs: 180000, allowRender: false,
+    format: 'md', formatExplicit: false, timeoutMs: 180000, allowRender: false, browser: 'isolated',
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') args.out = argv[++i];
     else if (a === '--list') args.list = argv[++i];
     else if (a === '--retry') args.retry = argv[++i];
+    else if (a === '--browser') args.browser = argv[++i];
+    else if (a === '--doctor') args.doctor = true;
+    else if (a === '--current') args.current = true;
     else if (a === '--format' || a === '-f') { args.format = argv[++i]; args.formatExplicit = true; }
     else if (a === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000;
     else if (a === '--render-fallback' || a === '--allow-focus') args.allowRender = true;
@@ -73,14 +78,16 @@ function parseArgs(argv) {
 function usage() {
   console.log(`feishu-doc-grabber ${VERSION}
 
-用法:
-  feishu-grab <url> [--format md|pdf|html|capture] [--out <dir>] [--render-fallback]
+Usage:
+  feishu-grab <url> [--out <dir>] [--browser chrome|isolated]
+  feishu-grab --current [--out <dir>]
+  feishu-grab --doctor
   feishu-grab --retry <export-report.json> [--out <dir>]
 
-  md       默认。SSR/API 直取 Markdown，不创建 Chrome 标签页
-  pdf      printToPDF；需要渲染，可能激活 Chrome
-  html     DOM 提取 HTML；需要渲染，可能激活 Chrome
-  capture  录制网络响应；需要渲染，供调试使用
+  md       Default. Export Markdown through SSR/API using daily Chrome
+  pdf      Export with printToPDF; rendering may bring Chrome forward
+  html     Extract HTML from the DOM; rendering may bring Chrome forward
+  capture  Record network responses for debugging; rendering is required
 
   --render-fallback  允许 Markdown 在 SSR 不足时打开渲染页做 DOM/截图兜底；
                      macOS 可能因此激活 Chrome（--allow-focus 为兼容别名）
@@ -88,7 +95,11 @@ function usage() {
   feishu-grab --list <urls.txt>   批量（每行一个 URL，# 注释）
   feishu-grab --retry <report>    重跑上次未 complete 的文档
 
-浏览器: 自动使用 AI 专属 Chrome for Testing（独立 profile ~/.ai-chrome-profile）
+Browser: feishu-grab uses your daily Google Chrome on macOS (no extension).
+  Enable View > Developer > Allow JavaScript from Apple Events once in Chrome.
+  --current exports the active Chrome document; --doctor checks the connection.
+  --browser isolated uses the existing Chrome for Testing workflow, including rendering.
+  Direct node grab.mjs calls retain the isolated browser default for compatibility.
   feishu-chrome login | start | status | open <url> | stop
 `);
 }
@@ -205,7 +216,7 @@ async function downloadImages(browser, pageUrl, images, assetsDir, urlPrefixRewr
   const map = new Map(); // src -> 相对文件名
   for (const src of images) {
     try {
-      const r = await fetch(src, { headers: { cookie, 'user-agent': UA, referer: pageUrl } });
+      const r = await sessionFetch(browser, src, { headers: { cookie, 'user-agent': UA, referer: pageUrl } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const buf = Buffer.from(await r.arrayBuffer());
       if (buf.length > 30 * 1024 * 1024) continue;
@@ -233,10 +244,16 @@ function pageTarget(browser) {
 }
 
 async function getCookiesFor(browser, urls) {
+  // Daily Chrome sends authenticated requests itself. No session data leaves Chrome.
+  if (browser instanceof DailyChrome) return [];
   const cdp = await pageTarget(browser).createCDPSession();
   const { cookies } = await cdp.send('Network.getCookies', { urls });
   cdp.detach().catch(() => {});
   return cookies;
+}
+
+async function sessionFetch(browser, url, options = {}) {
+  return browser instanceof DailyChrome ? browser.request(String(url), options) : fetch(url, options);
 }
 
 /** wiki token 有大小写变体，直接用变体 token 会 404/空 SSR —— 先调 get_node 规范化。
@@ -264,7 +281,7 @@ async function canonicalizeUrl(browser, url) {
     const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
     for (const cand of tokenCandidates(m[1])) {
       const api = `${u.origin}/space/api/wiki/v2/tree/get_node/?wiki_token=${cand}`;
-      const r = await (await fetch(api, { headers: { cookie, 'user-agent': UA } })).json();
+      const r = await (await sessionFetch(browser, api, { headers: { cookie, 'user-agent': UA } })).json();
       if (r?.code === 0 && r?.data?.wiki_token) {
         const canonical = r.data.wiki_token;
         const objToken = r.data.obj_token || null;
@@ -287,7 +304,7 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
   const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
   const csrf = cookies.find((c) => c.name === '_csrf_token')?.value || cookies.find((c) => c.name === 'swp_csrf_token')?.value || '';
   const H2 = { cookie, 'user-agent': UA, 'content-type': 'application/x-www-form-urlencoded', referer: `${origin}/`, 'x-csrftoken': csrf };
-  const idsResp = await (await fetch(
+  const idsResp = await (await sessionFetch(browser,
     `${origin}/space/api/comment/commentid/all?obj_type=22&token=${objToken}&comment_type_list=0&comment_type_list=1&need_comment_relations=true`,
     { method: 'POST', headers: H2 }
   )).json();
@@ -302,7 +319,7 @@ async function fetchCommentThreads(browser, objToken, docUrl) {
   form.set('need_reply', 'true');
   form.set('need_reaction', 'true');
   form.set('no_need_comment_relations', 'true');
-  const batchResp = await (await fetch(`${origin}/space/api/comment/batch`, {
+  const batchResp = await (await sessionFetch(browser, `${origin}/space/api/comment/batch`, {
     method: 'POST', headers: H2, body: form.toString(),
   })).json();
   if (batchResp.code !== 0) throw new Error(`comment/batch: ${batchResp.msg}`);
@@ -314,7 +331,7 @@ async function fetchHtml(browser, url) {
   // Network.getCookies 只能在 page 级 target 上调，从任意已开标签页取 cookie
   const cookies = await getCookiesFor(browser, [url]);
   const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-  const res = await fetch(url, { headers: { cookie, 'user-agent': UA, 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' } });
+  const res = await sessionFetch(browser, url, { headers: { cookie, 'user-agent': UA, 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' } });
   return res.text();
 }
 
@@ -345,7 +362,7 @@ async function fetchPaginatedClientVars(browser, url, html) {
     api.searchParams.set('limit', String(limit));
     api.searchParams.set('cursor', cursors[i]);
     try {
-      const response = await fetch(api, {
+      const response = await sessionFetch(browser, api, {
         headers: { cookie, 'user-agent': UA, referer: url, 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -373,7 +390,7 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   const referer = url;
   const map = new Map(); // 占位符 -> 相对路径
   const dl = async (endpoint, token, blockId, kind) => {
-    const r = await fetch(`https://${streamHost}/space/api/box/stream/download/${endpoint}/${token}/?mount_node_token=${blockId}&policy=equal`,
+    const r = await sessionFetch(browser, `https://${streamHost}/space/api/box/stream/download/${endpoint}/${token}/?mount_node_token=${blockId}&policy=equal`,
       { headers: { cookie, 'user-agent': UA, referer } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const buf = Buffer.from(await r.arrayBuffer());
@@ -424,7 +441,7 @@ async function fetchStructuredSheetsDirect(browser, url, requestedSheets) {
       const ref = parseEmbeddedSheetRef(requested.token);
       let sheetId = ref.sheetId;
       if (!sheetId) {
-        const resourceResponse = await fetch(new URL('/space/api/v3/sheet/resource/', url), {
+        const resourceResponse = await sessionFetch(browser, new URL('/space/api/v3/sheet/resource/', url), {
           method: 'POST', headers,
           body: JSON.stringify({ path: ['comments'], token: ref.token, sheetIDs: [] }),
         });
@@ -435,7 +452,7 @@ async function fetchStructuredSheetsDirect(browser, url, requestedSheets) {
         }
         sheetId = sheetIds[0];
       }
-      const clientResponse = await fetch(new URL('/space/api/v3/sheet/client_vars', url), {
+      const clientResponse = await sessionFetch(browser, new URL('/space/api/v3/sheet/client_vars', url), {
         method: 'POST', headers,
         body: JSON.stringify({
           memberId: 0, schemaVersion: 9, openType: 1, token: ref.token,
@@ -452,7 +469,7 @@ async function fetchStructuredSheetsDirect(browser, url, requestedSheets) {
         formulaUrl.searchParams.set('token', ref.token);
         formulaUrl.searchParams.set('block_token', blockId);
         formulaUrl.searchParams.set('blockIds', blockId);
-        const formulaResponse = await fetch(formulaUrl, { headers });
+        const formulaResponse = await sessionFetch(browser, formulaUrl, { headers });
         if (!formulaResponse.ok) throw new Error(`Formula block failed (HTTP ${formulaResponse.status})`);
         const formulaPayload = await formulaResponse.json();
         if (formulaPayload?.code !== 0) throw new Error(`Formula block failed (code ${formulaPayload?.code})`);
@@ -498,7 +515,9 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     for (let i = 0; i < forms.length * 2; i++) {
       html = await fetchHtml(browser, forms[i % forms.length]);
       if (/<title>[^<]*(?:登录|log in|sign in)[^<]*<\/title>/i.test(html)) {
-        throw new Error('未登录飞书。请先运行 feishu-chrome login，完成一次显式登录');
+        throw new Error(browser instanceof DailyChrome
+          ? 'Sign in to Feishu in your daily Google Chrome, then rerun the export.'
+          : 'Not signed in to Feishu. Run feishu-chrome login and complete sign-in once.');
       }
       if (/<title>[^<]*404[^<]*<\/title>/.test(html)) {
         throw new Error('文档不存在或无权限（404）。请从浏览器地址栏重新复制链接（注意 I/l、O/0 易混字符），或确认文档未被移动/删除');
@@ -939,10 +958,20 @@ async function withRetry(fn, times = 2) {
   throw lastErr;
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+export async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv);
   if (args.version) { console.log(VERSION); return; }
-  if (args.help || (!args.urls.length && !args.list && !args.retry)) { usage(); process.exit(0); }
+  if (args.help || (!args.urls.length && !args.list && !args.retry && !args.current && !args.doctor)) { usage(); return; }
+  if (!['chrome', 'isolated'].includes(args.browser)) throw new Error('Use --browser chrome or --browser isolated.');
+  if (args.doctor) {
+    if (args.browser !== 'chrome') throw new Error('--doctor checks daily Chrome. Use feishu-chrome status for the isolated browser.');
+    await new DailyChrome({ timeoutMs: args.timeoutMs }).doctor();
+    return;
+  }
+  if (args.current) {
+    if (args.browser !== 'chrome') throw new Error('--current requires --browser chrome.');
+    args.urls.push(await new DailyChrome().currentURL());
+  }
   let urls = args.urls.map(validateUrl);
   if (args.list) {
     const lines = readFileSync(args.list, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
@@ -955,7 +984,10 @@ async function main() {
     urls.push(...retryUrls);
     console.log(`→ 从 ${args.retry} 读取到 ${retryUrls.length} 篇待重试文档`);
   }
-  if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`未知格式: ${args.format}`);
+  if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`Unknown format: ${args.format}`);
+  if (args.browser === 'chrome' && (args.format !== 'md' || args.allowRender)) {
+    throw new Error('Daily Chrome supports Markdown through SSR/API. For PDF, HTML, capture, or rendered fallback, use --browser isolated.');
+  }
   urls = [...new Set(urls)];
   if (!urls.length) {
     console.log('✓ 上次导出已全部 complete，没有需要重试的文档');
@@ -964,7 +996,7 @@ async function main() {
   console.log(`共 ${urls.length} 篇 · 格式 ${args.format} · 输出 ${args.out}`);
   emitProgress({ total: urls.length, completed: 0, current: 1, stage: 'preparing', message: '准备导出' });
 
-  const browser = await connect();
+  const browser = args.browser === 'chrome' ? new DailyChrome({ timeoutMs: args.timeoutMs }) : await connect();
   const results = [];
   try {
     for (const [index, url] of urls.entries()) {
@@ -977,6 +1009,7 @@ async function main() {
       });
       updateProgress('reading', '读取文档信息');
       try {
+        if (browser instanceof DailyChrome) await browser.prepare(url);
         const fn = args.format === 'pdf' ? grabPdf
           : args.format === 'capture' ? grabCapture
           : (b, u, o, t) => grabExtract(b, u, o, t, args.format, {
@@ -1003,7 +1036,7 @@ async function main() {
       }
     }
   } finally {
-    browser.disconnect();
+    await browser.disconnect();
   }
 
   mkdirSync(args.out, { recursive: true });
@@ -1024,7 +1057,7 @@ async function main() {
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    run: { format: args.format, renderFallback: args.allowRender },
+    run: { format: args.format, renderFallback: args.allowRender, browser: args.browser },
     documents,
   };
   writeFileSync(reportFile, JSON.stringify(report, null, 2) + '\n');
@@ -1054,4 +1087,6 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(`✗ ${e.message}`); process.exit(1); });
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((e) => { console.error(`✗ ${e.message}`); process.exitCode = 1; });
+}
