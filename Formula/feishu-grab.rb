@@ -1,7 +1,10 @@
 class FeishuGrab < Formula
   desc "Export Feishu and Lark documents using your daily Chrome session"
   homepage "https://github.com/Popcornnnnnnnn/feishu-doc-grabber"
-  url "https://github.com/Popcornnnnnnnn/feishu-doc-grabber.git",
+  # This private repository is its own tap. The tap clone already used Git's
+  # configured authentication; fetching its pinned tag needs no credentials.
+  url "file://#{__dir__}/..",
+      using:    :git,
       tag:      "v1.3.1",
       revision: "647f01f0acecd757cb68df6dbce006a649cdd141"
   version "1.3.1"

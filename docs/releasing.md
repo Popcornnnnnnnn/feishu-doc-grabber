@@ -28,7 +28,9 @@ Private installation needs Git access already configured for this repository.
 If access is not configured, use the normal `gh auth login` / `gh auth setup-git`
 flow. Do not paste a token into a formula, download URL, or shell command.
 
-Homebrew fetches the pinned Git revision through Git's configured authentication.
+Homebrew authenticates when cloning or updating the tap. The formula fetches its
+pinned tag and revision from that local tap clone, so the download sandbox does not
+need access to credentials or the macOS keychain. The tap retains the release tags.
 It installs the Node dependencies in its own Cellar, a manual page, and bash/zsh/fish
 completions. It does not depend on the developer's checkout or modify shell config files.
 Publishing to a public tap or changing repository visibility is a separate decision.
