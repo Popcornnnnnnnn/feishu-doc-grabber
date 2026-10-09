@@ -26,6 +26,7 @@ class FeishuGrab < Formula
         #!/bin/sh
         exec "#{formula_opt_bin("node")}/node" "#{libexec/script}" "$@"
       SH
+      (bin/name).chmod 0755
     end
     man1.install "docs/feishu-grab.1"
     doc.install "README.md", "INTEGRITY.md", "CHANGELOG.md", "LICENSE"
@@ -33,7 +34,7 @@ class FeishuGrab < Formula
     { bash_completion/"feishu-grab" => "bash", zsh_completion/"_feishu-grab" => "zsh",
       fish_completion/"feishu-grab.fish" => "fish" }.each do |path, shell|
       path.dirname.mkpath
-      path.write Utils.safe_popen_read(bin/"feishu-grab", "completion", shell)
+      path.write Utils.safe_popen_read((bin/"feishu-grab").to_s, "completion", shell)
     end
   end
 
