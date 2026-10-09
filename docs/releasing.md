@@ -12,6 +12,8 @@ The release workflow packages only files allowed by `package.json`.
 4. The tag workflow tests the code on macOS, checks that the tag matches the version,
    and publishes the npm archive plus `SHA256SUMS` to a GitHub release. Verify that
    the workflow succeeds and that both release assets exist.
+   To replay it, use `gh workflow run release.yml --ref main -f tag=v1.3.1`.
+   Replay validates existing asset digests instead of creating or overwriting a release.
 5. Update `Formula/feishu-grab.rb` to the new version, tag, and exact tagged commit.
    Commit and push the formula update to the same private repository.
 6. Refresh the tap and run `brew reinstall popcornnnnnnnn/feishu-doc-grabber/feishu-grab`

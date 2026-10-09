@@ -4,6 +4,15 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to verify or publish
+        required: true
+        type: string
+
+concurrency:
+  group: cli-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -11,8 +20,12 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -21,12 +34,32 @@ jobs:
       - run: npm test
       - name: Check version and prepare archive
         run: |
-          test "$GITHUB_REF_NAME" = "v$(node cli.mjs --version)"
+          test "$RELEASE_TAG" = "v$(node cli.mjs --version)"
           npm pack --ignore-scripts
           shasum -a 256 feishu-doc-grabber-*.tgz > SHA256SUMS
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" feishu-doc-grabber-*.tgz SHA256SUMS \
-            --verify-tag --title "Feishu Grabber $GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          if gh release view "$RELEASE_TAG" --json assets,isDraft > release.json 2> release-error.log; then
+            node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const release = JSON.parse(readFileSync('release.json', 'utf8'));
+          if (release.isDraft) throw new Error('Existing release is still a draft.');
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          for (const name of [`feishu-doc-grabber-${version}.tgz`, 'SHA256SUMS']) {
+            const expected = 'sha256:' + createHash('sha256').update(readFileSync(name)).digest('hex');
+            if (release.assets.find((asset) => asset.name === name)?.digest !== expected) {
+              throw new Error(`Existing release asset differs or is missing: ${name}`);
+            }
+          }
+          console.log('Existing release assets match the verified build.');
+          JS
+          elif node -e "process.exit(/release not found/i.test(require('fs').readFileSync('release-error.log','utf8')) ? 0 : 1)"; then
+            gh release create "$RELEASE_TAG" feishu-doc-grabber-*.tgz SHA256SUMS \
+              --verify-tag --title "Feishu Grabber $RELEASE_TAG" --notes-file CHANGELOG.md
+          else
+            cat release-error.log
+            exit 1
+          fi
