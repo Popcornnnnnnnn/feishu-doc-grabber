@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- Await the page target before opening its authentication session in isolated mode.
+- Add a full mocked export regression covering body, comments, output files, and integrity.
+- Allow manually replaying the release workflow against an existing version tag.
+
 ## 1.3.0
 
 - Install a pinned release with Homebrew, including a manual page and shell completions.

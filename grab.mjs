@@ -192,7 +192,8 @@ function pageTarget(browser) {
 async function getCookiesFor(browser, urls) {
   // Daily Chrome sends authenticated requests itself. No session data leaves Chrome.
   if (browser instanceof DailyChrome) return [];
-  const cdp = await pageTarget(browser).createCDPSession();
+  const target = await pageTarget(browser);
+  const cdp = await target.createCDPSession();
   const { cookies } = await cdp.send('Network.getCookies', { urls });
   cdp.detach().catch(() => {});
   return cookies;
