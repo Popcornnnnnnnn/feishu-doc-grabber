@@ -1,6 +1,6 @@
 {
   "name": "feishu-doc-grabber",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Local, integrity-aware Feishu and Lark document exporter",
   "bin": {
@@ -23,10 +23,12 @@
     "lib/",
     "tools/ai-chrome.mjs",
     "README.md",
-    "INTEGRITY.md"
+    "INTEGRITY.md",
+    "docs/feishu-grab.1",
+    "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "type": "module",
   "dependencies": {

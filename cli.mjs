@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { main } from './grab.mjs';
+import { runCLI } from './lib/cli.mjs';
 
-const argv = process.argv.slice(2);
-if (!argv.includes('--browser')) argv.unshift('--browser', 'chrome');
-main(argv).catch((error) => {
+runCLI(process.argv.slice(2)).catch((error) => {
   console.error(`✗ ${error.message}`);
-  process.exitCode = 1;
+  if (error.exitCode === 64) console.error('Run feishu-grab --help for usage.');
+  process.exitCode = error.exitCode || 1;
 });

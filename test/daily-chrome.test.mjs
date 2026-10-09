@@ -142,11 +142,11 @@ test('daily transport does not close a temporary tab navigated by the user', asy
 
 test('CLI uses daily Chrome and rejects unsupported rendering before browser operations', () => {
   const cli = spawnSync(process.execPath, ['cli.mjs', source, '--format', 'pdf'], { encoding: 'utf8' });
-  assert.equal(cli.status, 1);
+  assert.equal(cli.status, 64);
   assert.match(cli.stderr, /use --browser isolated/);
   const help = spawnSync(process.execPath, ['cli.mjs', '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /daily Google Chrome/);
+  assert.match(help.stdout, /daily Chrome/);
   assert.match(help.stdout, /--current/);
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
   assert.equal(manifest.bin['feishu-grab'], './cli.mjs');

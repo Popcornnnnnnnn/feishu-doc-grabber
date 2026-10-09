@@ -14,10 +14,10 @@
 import puppeteer from 'puppeteer-core';
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { DailyChrome } from './lib/daily-chrome.mjs';
+import { DailyChrome, documentURL } from './lib/daily-chrome.mjs';
+import { parseExportArgs, helpText, UsageError, VERSION } from './lib/cli-options.mjs';
 import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
 import {
@@ -40,9 +40,6 @@ import { decodeSheetClientVars, parseEmbeddedSheetRef, sheetBlockRequirements } 
 import { renderResultPage, retryableDocuments } from './lib/report.mjs';
 import { ensureRunning, reachable, AI_PORT } from './tools/ai-chrome.mjs';
 
-const ALLOWED_HOSTS = /(^|\.)feishu\.cn$|(^|\.)larkoffice\.com$|(^|\.)larksuite\.com$/i;
-const ALLOWED_PATH = /^\/(docx|wiki|docs)\//i;
-const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const PROGRESS_PREFIX = '@@FEISHU_PROGRESS@@';
 
 function emitProgress(event) {
@@ -52,57 +49,9 @@ function emitProgress(event) {
 
 // ---------- CLI ----------
 
-function parseArgs(argv) {
-  const args = {
-    urls: [], out: join(homedir(), 'Downloads'), list: null, retry: null,
-    format: 'md', formatExplicit: false, timeoutMs: 180000, allowRender: false, browser: 'isolated',
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--out') args.out = argv[++i];
-    else if (a === '--list') args.list = argv[++i];
-    else if (a === '--retry') args.retry = argv[++i];
-    else if (a === '--browser') args.browser = argv[++i];
-    else if (a === '--doctor') args.doctor = true;
-    else if (a === '--current') args.current = true;
-    else if (a === '--format' || a === '-f') { args.format = argv[++i]; args.formatExplicit = true; }
-    else if (a === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000;
-    else if (a === '--render-fallback' || a === '--allow-focus') args.allowRender = true;
-    else if (a === '--version' || a === '-v') args.version = true;
-    else if (a === '--help' || a === '-h') args.help = true;
-    else args.urls.push(a);
-  }
-  return args;
-}
+function parseArgs(argv) { return parseExportArgs(argv); }
 
-function usage() {
-  console.log(`feishu-doc-grabber ${VERSION}
-
-Usage:
-  feishu-grab <url> [--out <dir>] [--browser chrome|isolated]
-  feishu-grab --current [--out <dir>]
-  feishu-grab --doctor
-  feishu-grab --retry <export-report.json> [--out <dir>]
-
-  md       Default. Export Markdown through SSR/API using daily Chrome
-  pdf      Export with printToPDF; rendering may bring Chrome forward
-  html     Extract HTML from the DOM; rendering may bring Chrome forward
-  capture  Record network responses for debugging; rendering is required
-
-  --render-fallback  允许 Markdown 在 SSR 不足时打开渲染页做 DOM/截图兜底；
-                     macOS 可能因此激活 Chrome（--allow-focus 为兼容别名）
-
-  feishu-grab --list <urls.txt>   批量（每行一个 URL，# 注释）
-  feishu-grab --retry <report>    重跑上次未 complete 的文档
-
-Browser: feishu-grab uses your daily Google Chrome on macOS (no extension).
-  Enable View > Developer > Allow JavaScript from Apple Events once in Chrome.
-  --current exports the active Chrome document; --doctor checks the connection.
-  --browser isolated uses the existing Chrome for Testing workflow, including rendering.
-  Direct node grab.mjs calls retain the isolated browser default for compatibility.
-  feishu-chrome login | start | status | open <url> | stop
-`);
-}
+function usage() { console.log(helpText('export')); }
 
 // ---------- Chrome 连接 ----------
 
@@ -130,11 +79,8 @@ async function newBgPage(browser) {
 // ---------- URL / 文件名 ----------
 
 function validateUrl(raw) {
-  let url;
-  try { url = new URL(raw.trim()); } catch { throw new Error(`无法解析 URL: ${raw}`); }
-  if (!ALLOWED_HOSTS.test(url.hostname)) throw new Error(`仅支持飞书域名，当前: ${url.hostname}`);
-  if (!ALLOWED_PATH.test(url.pathname)) throw new Error(`仅支持 docx/wiki/docs 链接，当前: ${url.pathname}`);
-  return url.href;
+  try { return documentURL(String(raw).trim()).href; }
+  catch { throw new UsageError('Use an HTTPS Feishu/Lark docx, wiki, or docs document link.'); }
 }
 
 function safeName(title) {
@@ -986,11 +932,12 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`Unknown format: ${args.format}`);
   if (args.browser === 'chrome' && (args.format !== 'md' || args.allowRender)) {
-    throw new Error('Daily Chrome supports Markdown through SSR/API. For PDF, HTML, capture, or rendered fallback, use --browser isolated.');
+    throw new UsageError('Daily Chrome supports Markdown through SSR/API. For PDF, HTML, capture, or rendered fallback, use --browser isolated.');
   }
   urls = [...new Set(urls)];
   if (!urls.length) {
-    console.log('✓ 上次导出已全部 complete，没有需要重试的文档');
+    if (!args.retry) throw new UsageError('No document URLs were found. Provide a URL, a nonempty --list file, or --current.');
+    console.log('✓ Every document in the previous export is complete. Nothing to retry.');
     return;
   }
   console.log(`共 ${urls.length} 篇 · 格式 ${args.format} · 输出 ${args.out}`);

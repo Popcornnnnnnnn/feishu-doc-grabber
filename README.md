@@ -4,7 +4,21 @@ A command-line exporter for Feishu/Lark documents. On macOS, `feishu-grab` reuse
 
 ## Install and use
 
-Requires macOS, Node.js 20+, and Google Chrome. Install from this checkout:
+The daily Chrome workflow requires macOS and Google Chrome. Homebrew installs Node.js automatically.
+
+Install the private release using Git access already configured for this repository:
+
+```bash
+brew tap popcornnnnnnnn/feishu-doc-grabber https://github.com/Popcornnnnnnnn/feishu-doc-grabber.git
+brew install popcornnnnnnnn/feishu-doc-grabber/feishu-grab
+```
+
+The repository remains private: these commands require your existing repository permission.
+For first-time Git authentication, use `gh auth login` and `gh auth setup-git`; do not put a token in the install command.
+The source is pinned to an exact release commit. Upgrade with `brew update` followed by
+`brew upgrade popcornnnnnnnn/feishu-doc-grabber/feishu-grab`.
+
+For development from this checkout, use Node.js 22.12 or newer:
 
 ```bash
 npm install
@@ -14,7 +28,7 @@ npm link
 Open a Feishu/Lark document in your daily Chrome. Enable **View → Developer → Allow JavaScript from Apple Events** once. If macOS asks, allow your terminal to control Google Chrome in **System Settings → Privacy & Security → Automation**. These permissions let local automation run JavaScript in Chrome pages; the CLI does not enable them automatically. Chrome [documents this setting](https://www.chromium.org/developers/applescript/).
 
 ```bash
-feishu-grab --doctor
+feishu-grab doctor
 feishu-grab 'https://example.feishu.cn/wiki/TOKEN' --out ./exports
 ```
 
@@ -32,6 +46,30 @@ Without global installation, use `node /absolute/path/to/feishu-doc-grabber/cli.
 Daily Chrome mode supports Markdown for `/docx/`, document `/wiki/`, and `/docs/` links. It reuses an existing document tab, or opens a temporary tab in the same site's existing Chrome window (otherwise the front Chrome window). With multiple profiles, keep the intended signed-in profile's window in front. Existing tabs are preserved; only temporary export tabs are closed. Chrome must remain running throughout the export. `--doctor` checks the automation connection; an actual export checks document access and server authentication.
 
 Requests execute inside Chrome with its normal authentication. The daily mode does not read cookies, passwords, profile databases, or local storage, and does not grant additional document access. Browser CORS restrictions, CSRF-protected read APIs, unsupported content, and failed media are reported through the existing integrity checks; a produced file is not automatically a complete export. PDF, DOM HTML, network capture, and rendered fallback use the separate browser option below.
+
+## Commands and reference
+
+```bash
+feishu-grab --help
+feishu-grab help export
+feishu-grab --version
+feishu-grab export <url> --out ./exports
+feishu-grab current --out ./exports
+feishu-grab doctor --json
+feishu-grab report ./exports/export-report.json
+feishu-grab report ./exports/export-report.json --json
+feishu-grab completion zsh
+man feishu-grab
+```
+
+Homebrew installs the manual page and bash/zsh/fish completions. `completion` prints definitions without modifying your shell configuration.
+`--out`/`-o`, `--format`/`-f`, `--timeout`, `--browser`, `--list`, and `--retry` accept separate values;
+long options also support `--option=value`. Unknown options, missing values, invalid links, and incompatible browser modes fail before browser access.
+Use `--help` on any command for its options. Direct URL usage and the `--current` / `--doctor` aliases remain supported.
+
+`doctor --json` reports connection state; a connected result does not prove document authentication.
+`report --json` prints the original report and returns a status based on its results.
+See [release maintenance](docs/releasing.md) and [version history](CHANGELOG.md).
 
 ## Existing isolated-browser option
 
@@ -72,7 +110,7 @@ Each run writes Markdown, downloaded assets, `index.html`, `retry-urls.txt`, and
 - `degraded`: a file was produced, but at least one dimension cannot be proven.
 - `incomplete`: the source proves content or resources are missing.
 
-Exit codes are `0` for complete, `1` for an operational failure, and `2` for degraded or incomplete output. See [Export Integrity Protocol v1](INTEGRITY.md) for the exact rules.
+Exit codes are `0` for complete, `1` for an operational failure, `2` for degraded or incomplete output, and `64` for invalid arguments or report schemas. See [Export Integrity Protocol v1](INTEGRITY.md) for the exact rules.
 
 ## Rendering is opt-in
 

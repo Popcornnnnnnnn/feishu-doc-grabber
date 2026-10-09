@@ -1,0 +1,107 @@
+.TH FEISHU-GRAB 1 "October 9, 2026" "Feishu Grabber 1.3.0"
+.SH NAME
+feishu-grab \- export Feishu and Lark documents using daily Chrome
+.SH SYNOPSIS
+.B feishu-grab
+.RI [ export ] " url ... " [ options ]
+.br
+.B feishu-grab current
+.RI [ options ]
+.br
+.B feishu-grab doctor
+.RI [ --json ] " [--timeout seconds]"
+.br
+.B feishu-grab report
+.I export-report.json
+.RI [ --json ]
+.br
+.B feishu-grab completion
+.I bash|zsh|fish
+.br
+.B feishu-grab help
+.RI [ command ]
+.br
+.B feishu-grab version
+.SH DESCRIPTION
+Exports HTTPS Feishu/Lark docx, document wiki, and docs links to local Markdown
+with assets and integrity reports. Daily Chrome is the default browser mode
+and uses macOS AppleScript. Authentication remains in Chrome.
+.PP
+Enable Chrome's View > Developer > Allow JavaScript from Apple Events setting.
+If prompted, allow your terminal to control Google Chrome in macOS Automation
+privacy settings. The program does not enable these permissions automatically.
+Keep the intended signed-in Chrome profile's window open during export.
+.SH OPTIONS
+.TP
+.BR -o ", " --out " directory"
+Output directory. Defaults to ~/Downloads.
+.TP
+.B --list file
+Read UTF-8 URLs, one per line. Ignore blank lines and lines starting with #.
+.TP
+.B --retry report
+Retry documents that did not reach complete in a previous export report.
+.TP
+.B --current
+Include the active document in daily Chrome.
+Also available as the current command.
+.TP
+.B --browser chrome|isolated
+Use daily Chrome (default) or the existing Chrome for Testing profile.
+.TP
+.BR -f ", " --format " md|pdf|html|capture"
+Output format. Defaults to md. Daily Chrome supports Markdown only.
+Other formats require --browser isolated.
+.TP
+.B --timeout seconds
+Positive request timeout. Defaults to 180 seconds.
+.TP
+.B --render-fallback
+Allow a rendered DOM or screenshot fallback in isolated mode.
+The compatibility alias --allow-focus is also accepted.
+.TP
+.B --doctor
+Compatibility alias for the doctor command.
+.TP
+.BR -h ", " --help
+Show usage or command help.
+.TP
+.BR -V ", " -v ", " --version
+Show the installed version.
+.SH OUTPUT
+Each run writes document files, downloaded assets, export-report.json,
+index.html, and retry-urls.txt. Integrity verdicts are complete, degraded
+(completeness unproven), or incomplete (known missing content or resources).
+An output file alone does not prove a complete export.
+.PP
+The report command inspects these results without connecting to Chrome.
+The --json option prints the original report. Doctor --json prints connection
+state; successful connection does not prove authentication or document access.
+.SH EXIT STATUS
+.TP
+.B 0
+Every exported or reported document is complete; non-export commands succeeded.
+.TP
+.B 1
+Operational failure.
+.TP
+.B 2
+At least one document is degraded or incomplete, without an operational failure.
+.TP
+.B 64
+Invalid arguments or an invalid report schema.
+.SH EXAMPLES
+.nf
+feishu-grab doctor
+feishu-grab 'https://example.feishu.cn/wiki/TOKEN' --out ./exports
+feishu-grab current --out ./exports
+feishu-grab export --list urls.txt --out ./exports
+feishu-grab report ./exports/export-report.json --json
+feishu-grab help export
+.fi
+.SH LIMITATIONS
+Daily session reuse requires macOS and Google Chrome. CORS restrictions,
+CSRF-protected read APIs, inaccessible resources, and unsupported blocks
+may result in degraded or incomplete exports. Native documents and browser
+profiles are not modified. Existing tabs are preserved; temporary export
+tabs are closed after use unless navigated by the user.
