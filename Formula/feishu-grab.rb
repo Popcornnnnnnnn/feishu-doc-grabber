@@ -5,9 +5,9 @@ class FeishuGrab < Formula
   # configured authentication; fetching its pinned tag needs no credentials.
   url "file://#{__dir__}/..",
       using:    :git,
-      tag:      "v1.3.1",
-      revision: "647f01f0acecd757cb68df6dbce006a649cdd141"
-  version "1.3.1"
+      tag:      "v1.3.2",
+      revision: "dcd67347ac0e597d55450f206c815cc7b727c15a"
+  version "1.3.2"
   license "ISC"
 
   depends_on :macos
