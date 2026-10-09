@@ -30,6 +30,46 @@ function pageBrowser({ fetch, url = source } = {}) {
   return { browser: new DailyChrome({ run, timeoutMs: 2000 }), context, scripts };
 }
 
+test('Chrome inventory uses explicit delimiters despite the application tab terminology', async () => {
+  const browser = new DailyChrome({ run: async (script) => {
+    if (script.includes('set rows to')) {
+      // Chrome resolves `tab` as its tab class, not AppleScript's tab character.
+      assert.match(script, /& \(ASCII character 9\) &/);
+      assert.doesNotMatch(script, /& tab &/);
+      return `129050718\t129050719\thttps://example.com/\n129050718\t129050720\t${source}\n`;
+    }
+    assert.match(script, /\(id of t as text\) is "129050720"/);
+    return '{"ready":true}';
+  } });
+  assert.deepEqual(await browser.doctor({ quiet: true }), {
+    browser: 'chrome', connected: true, authentication: 'checked-during-export',
+  });
+});
+
+test('daily transport selects windows and cleans created tabs using Chrome text IDs', async () => {
+  let created = false;
+  const calls = [];
+  const browser = new DailyChrome({ run: async (script) => {
+    calls.push(script);
+    if (script.includes('set rows to')) {
+      return `1\t42\thttps://example.feishu.cn/docx/Other${created ? `\n1\t77\t${source}` : ''}`;
+    }
+    if (script.includes('make new tab')) {
+      assert.match(script, /first window whose id is "1"/);
+      created = true;
+      return '77';
+    }
+    assert.match(script, /\(id of t as text\) is "77"/);
+    if (script.includes('close t')) return '';
+    if (script.includes('document.readyState')) return 'true';
+    return 'connected';
+  } });
+  await browser.prepare(source);
+  await browser.disconnect();
+  assert.equal(calls.filter((script) => script.includes('close t')).length, 1);
+  assert.equal(browser.created.size, 0);
+});
+
 test('daily transport permits only Feishu document reads and approved media', () => {
   assert.equal(allowedRequest(source, source), true);
   assert.equal(allowedRequest(source, api, 'POST'), true);

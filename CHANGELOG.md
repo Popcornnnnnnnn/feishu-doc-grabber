@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+- Use explicit tab characters in Chrome inventory so the browser dictionary cannot mask the delimiter.
+- Match Chrome's text identifiers when selecting windows and executing in or closing tabs.
+- Add regressions for Chrome identifiers, document selection, and temporary-tab cleanup.
+
 ## 1.3.1
 
 - Await the page target before opening its authentication session in isolated mode.
