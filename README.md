@@ -125,3 +125,11 @@ feishu-grab <url> --browser isolated --render-fallback
 On macOS this option may activate Chrome for Testing. Explicit `--format pdf`, `--format html`, and `--format capture` operations also require rendering. `--allow-focus` remains as a compatibility alias for `--render-fallback`.
 
 The real-document compatibility matrix is documented in [Feishu Export Test Corpus](TEST-CORPUS.md); implementation notes are in [PLAN.md](PLAN.md).
+
+
+<!-- workspace-maintenance:start -->
+## 本地维护入口
+
+工作目录：`~/Workspace/feishu-doc-grabber`。代码与必要文档备份到 [私有仓库](https://github.com/Popcornnnnnnnn/feishu-doc-grabber)；[问题入口](https://github.com/Popcornnnnnnnn/feishu-doc-grabber/issues)。
+日常分支：`main`，私有远端：`origin`。需跟进的问题先查重，进展与完成条件留在 Issue；项目功能和验收沿用现有记录。
+<!-- workspace-maintenance:end -->
