@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feishu Grabber</title>
+  <link rel="icon" href="../icons/32.png">
+  <link rel="stylesheet" href="task.css">
+</head>
+<body>
+  <main>
+    <header class="toolbar">
+      <img src="../icons/32.png" width="20" height="20" alt="">
+      <h1>Feishu Grabber</h1>
+      <button id="settings-open" class="icon-button" title="Settings" aria-label="Settings">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.3 4 .6-2h4.2l.6 2 1.8 1.1 2.1-.5 2.1 3.6-1.5 1.5v2.1l1.5 1.5-2.1 3.6-2.1-.5-1.8 1.1-.6 2H9.9l-.6-2-1.8-1.1-2.1.5-2.1-3.6 1.5-1.5V9.7L3.3 8.2l2.1-3.6 2.1.5Z" transform="translate(0 1)"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <button id="settings-back" class="back-button" hidden><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 5-5 5 5 5"/></svg>Back</button>
+    </header>
+
+    <section id="settings-panel" hidden aria-labelledby="settings-heading">
+      <div class="page-heading"><h2 id="settings-heading">Settings</h2><span>On this device</span></div>
+      <form id="settings-form">
+        <fieldset class="settings-group">
+          <legend>Export</legend>
+          <div class="group-surface">
+            <label class="setting-row" for="setting-format"><span>Format</span><select id="setting-format"><option value="zip">ZIP archive</option><option value="folder">Folder</option></select></label>
+            <p id="folder-hint" class="row-note" hidden>Separate files, with images and attachments kept together.</p>
+            <label class="setting-row switch-row"><span>Ask where to save <small>ZIP only</small></span><input type="checkbox" id="setting-ask" role="switch" aria-label="Ask where to save each ZIP"></label>
+            <label class="setting-row" for="setting-whiteboards"><span>Whiteboards</span><select id="setting-whiteboards"><option value="auto">Capture as screenshot</option><option value="off">Skip and mark missing</option></select></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend>Save location</legend>
+          <div class="group-surface location-group">
+            <label for="setting-subfolder">Subfolder</label>
+            <div class="input-wrap"><input id="setting-subfolder" type="text" maxlength="120" placeholder="Chrome download folder" autocomplete="off" spellcheck="false" aria-describedby="folder-location-help"><button id="clear-subfolder" type="button" class="clear-button" aria-label="Clear subfolder" title="Use the default download folder" hidden><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div>
+            <p id="folder-location-help" class="field-help">Optional. Relative to Chrome’s download folder.</p>
+            <button type="button" id="chrome-download-settings" class="text-button">Chrome download settings <span aria-hidden="true">↗</span></button>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend>Appearance</legend>
+          <div class="group-surface"><label class="setting-row" for="setting-theme"><span>Theme</span><select id="setting-theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div>
+        </fieldset>
+        <p class="settings-note">Changes apply to your next export.</p>
+        <div class="settings-actions"><p id="settings-status" role="status" aria-live="polite"></p><button id="settings-save" type="submit" disabled>Save settings</button></div>
+      </form>
+    </section>
+
+    <div id="export-view">
+      <section class="document-section" aria-labelledby="document-heading">
+        <div class="eyebrow">Current document</div>
+        <h2 id="document-heading">Reading source tab…</h2>
+        <p id="source" class="source"></p>
+      </section>
+      <section class="export-options" aria-label="Export options">
+        <div class="format"><span class="file-icon" aria-hidden="true"><svg width="18" height="20" viewBox="0 0 20 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1h8l5 5v16H4zM12 1v6h5M7 12h7M7 16h7"/></svg></span><div><strong id="format-label">Markdown archive</strong><p>Images, attachments &amp; report</p></div><span id="format-extension" class="format-tag">.zip</span></div>
+        <p id="destination" class="destination"></p>
+      </section>
+      <p id="active-job" class="source" hidden></p>
+      <div class="actions"><button id="download" class="secondary" hidden>Download ZIP again</button><button id="cancel" class="secondary" hidden>Cancel</button><button id="export" disabled>Export</button></div>
+      <div id="progress-area" hidden><progress id="progress" max="1" value="0"></progress></div>
+      <p id="status" role="status" aria-live="polite">Checking document…</p>
+      <section id="result" class="result" hidden aria-labelledby="result-heading"><div class="result-top"><h2 id="result-heading"></h2><span id="verdict" class="badge"></span></div><p id="summary"></p><ul id="checks"></ul><details id="issue-details" hidden><summary>Export details</summary><ul id="issues"></ul></details></section>
+      <section id="previous-export" class="previous-export" hidden aria-labelledby="previous-label">
+        <div id="previous-label" class="eyebrow">Previous export</div>
+        <h2 id="previous-title"></h2>
+        <p id="previous-status"></p>
+        <button id="previous-download" class="secondary" hidden>Download previous ZIP</button>
+      </section>
+      <footer><span class="local-dot" aria-hidden="true"></span><span>Local processing · No uploads</span><span class="limit">100 MB max</span></footer>
+      <p class="help">You can close this popup while exporting.<br>Keep Chrome and the source document open.</p>
+      <details class="limits"><summary>Export limitations</summary><p>Whiteboards are captured as page screenshots; Bitable tables export as one CSV per data table. Anything that fails is listed in the integrity report.</p></details>
+    </div>
+  </main>
+  <script type="module" src="task.mjs"></script>
+</body>
+</html>

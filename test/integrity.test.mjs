@@ -53,12 +53,12 @@ test('a complete visual sheet fallback remains degraded', () => {
   assert.equal(report.checks.find((check) => check.name === 'sheetFallbacks').status, 'warn');
 });
 
-test('a complete visual whiteboard fallback remains degraded', () => {
+test('a complete whiteboard screenshot set is a normal pass', () => {
   const evidence = fullEvidence();
   evidence.media.whiteboards = { expected: 1, exported: 1 };
   const report = evaluateIntegrity(evidence);
-  assert.equal(report.verdict, 'degraded');
-  assert.equal(report.checks.find((check) => check.name === 'whiteboards').status, 'warn');
+  assert.equal(report.verdict, 'complete');
+  assert.equal(report.checks.find((check) => check.name === 'whiteboards').status, 'pass');
 });
 
 test('structured sheets degrade when formula expressions are unavailable', () => {

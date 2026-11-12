@@ -12,7 +12,9 @@
     "test:browser": "FEISHU_BROWSER_SMOKE=1 node --test smoke.test.mjs",
     "grab": "node cli.mjs",
     "chrome": "node tools/ai-chrome.mjs",
-    "validate:corpus": "node tools/validate-corpus.mjs"
+    "validate:corpus": "node tools/validate-corpus.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
+    "test:extension": "npm run build:extension && node tools/verify-extension.mjs"
   },
   "keywords": [],
   "author": "",
@@ -32,6 +34,7 @@
   },
   "type": "module",
   "dependencies": {
+    "fflate": "^0.8.3",
     "puppeteer-core": "^25.10.0"
   }
 }

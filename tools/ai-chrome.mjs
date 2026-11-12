@@ -31,10 +31,10 @@ export const CHROME_BIN =
 
 function validateAutomationBrowser() {
   if (basename(CHROME_BIN) !== 'Google Chrome for Testing') {
-    throw new Error('自动化只允许使用 Google Chrome for Testing；不会回退到日常 Google Chrome');
+    throw new Error('Automation is restricted to Google Chrome for Testing and will not fall back to your everyday Google Chrome.');
   }
   if (!existsSync(CHROME_BIN)) {
-    throw new Error(`未安装 Google Chrome for Testing: ${CHROME_BIN}`);
+    throw new Error(`Google Chrome for Testing is not installed: ${CHROME_BIN}`);
   }
 }
 
@@ -50,7 +50,7 @@ export async function reachable(port = AI_PORT) {
 /** 启动 AI 实例（幂等）。默认 headless；只有显式 login/open 才显示窗口。 */
 export async function start({ silent = false, headed = false, initialUrl = 'about:blank' } = {}) {
   if (await reachable()) {
-    if (!silent) console.log(`✓ AI Chrome for Testing 已在运行 (127.0.0.1:${AI_PORT})`);
+    if (!silent) console.log(`✓ AI Chrome for Testing is already running (127.0.0.1:${AI_PORT})`);
     return false;
   }
   validateAutomationBrowser();
@@ -72,12 +72,12 @@ export async function start({ silent = false, headed = false, initialUrl = 'abou
     await new Promise((r) => setTimeout(r, 500));
     if (await reachable()) {
       if (!silent) {
-        console.log(`✓ AI Chrome for Testing 已${headed ? '可见' : '在后台'}启动 (${AI_PROFILE})`);
+        console.log(`✓ AI Chrome for Testing started ${headed ? 'with a visible window' : 'in the background'} (${AI_PROFILE})`);
       }
       return true;
     }
   }
-  throw new Error(`AI Chrome for Testing 启动失败，请手动执行: "${CHROME_BIN}" --user-data-dir=${AI_PROFILE} --remote-debugging-port=${AI_PORT}`);
+  throw new Error(`AI Chrome for Testing failed to start. Run this command manually: "${CHROME_BIN}" --user-data-dir=${AI_PROFILE} --remote-debugging-port=${AI_PORT}`);
 }
 
 /** 供脚本调用：确保实例在运行，无输出 */
@@ -131,10 +131,10 @@ function authStatus() {
 }
 
 async function status() {
-  if (!(await reachable())) return console.log('✗ 未运行');
+  if (!(await reachable())) return console.log('✗ Not running');
   const targets = await fetch(`http://127.0.0.1:${AI_PORT}/json/list`).then((r) => r.json());
-  console.log(`✓ 运行中 (127.0.0.1:${AI_PORT})，profile: ${AI_PROFILE}`);
-  console.log(`✓ 标签页:`);
+  console.log(`✓ Running (127.0.0.1:${AI_PORT}), profile: ${AI_PROFILE}`);
+  console.log(`✓ Tabs:`);
   for (const t of targets) {
     if (t.type !== 'page') continue;
     console.log(`   - ${t.title}  ${t.url}`);
@@ -151,7 +151,7 @@ async function open(url) {
   }
   if (!version) {
     await start({ headed: true, initialUrl: url });
-    console.log(`✓ 已打开: ${url}`);
+    console.log(`✓ Opened: ${url}`);
     return;
   }
   const { webSocketDebuggerUrl } = version;
@@ -165,20 +165,20 @@ async function open(url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.bringToFront();
   browser.disconnect();
-  console.log(`✓ 已打开: ${url}`);
+  console.log(`✓ Opened: ${url}`);
 }
 
 async function login() {
   await open('https://feishu.cn');
-  console.log('★ 请完成登录；关闭窗口后，后续导出会复用登录态并在后台运行');
+  console.log('★ Complete sign-in. After you close the window, future exports will reuse the saved session and run in the background.');
 }
 
 async function stop() {
-  if (!(await reachable())) return console.log('✗ 未运行');
+  if (!(await reachable())) return console.log('✗ Not running');
   const { webSocketDebuggerUrl } = await fetch(`http://127.0.0.1:${AI_PORT}/json/version`).then((r) => r.json());
   const browser = await puppeteer.connect({ browserWSEndpoint: webSocketDebuggerUrl });
   await browser.close(); // 优雅退出，登录态保留在 profile
-  console.log('✓ 已退出');
+  console.log('✓ Stopped');
 }
 
 // ---------- CLI（仅直接运行本文件时执行，被 import 时不执行） ----------
@@ -187,7 +187,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
   const help = () =>
-    console.log(`用法: feishu-chrome <login|auth-status|start|status|open <url>|stop|ensure>`);
+    console.log(`Usage: feishu-chrome <login|auth-status|start|status|open <url>|stop|ensure>`);
   switch (cmd) {
     case 'login': await login(); break;
     case 'auth-status': {
@@ -197,7 +197,7 @@ if (isMain) {
     }
     case 'start': await start(); break;
     case 'status': await status(); break;
-    case 'open': rest[0] ? await open(rest[0]) : (console.log('缺少 URL'), help()); break;
+    case 'open': rest[0] ? await open(rest[0]) : (console.log('Missing URL'), help()); break;
     case 'stop': await stop(); break;
     case 'ensure': await ensureRunning(); break;
     default: help();

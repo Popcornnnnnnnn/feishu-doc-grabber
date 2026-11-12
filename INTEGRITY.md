@@ -14,7 +14,7 @@ An export is not considered complete merely because a file was written. Every ru
 | Pagination | SSR explicitly reports `has_more = false` | Unknown is degraded; `has_more = true` is incomplete |
 | Images and attachments | Exported count equals detected count | Any missing resource is incomplete |
 | Structured sheets | Every declared cell/formula block is decoded; computed values, formula expressions, and declared merge mutations are exported | Missing blocks are incomplete; unavailable formula expressions are degraded even when computed values are preserved; corpus cases may require a minimum merge count to catch malformed fixtures |
-| Whiteboards and sheet fallbacks | No visual fallback is required | A complete screenshot set is degraded because structured/offscreen completeness is unproven; a missing screenshot is incomplete |
+| Whiteboards and sheet fallbacks | Whiteboards: every detected board is exported as a page screenshot (the only fidelity the source offers, so a complete set is a pass). Sheet fallbacks: no visual fallback is required | Whiteboards: any missing board is incomplete. Sheet fallbacks: a complete screenshot set is degraded because structured export exists and failed; a missing screenshot is incomplete |
 | Comments | Comment endpoints were checked successfully | Unavailable or failed check is degraded |
 | Block recognition | No unknown DOM block signatures | Unknown signatures are degraded |
 
@@ -22,7 +22,7 @@ An export is not considered complete merely because a file was written. Every ru
 
 Markdown defaults to a zero-render path: document blocks, comments, media, and embedded sheets are read from authenticated SSR/API responses without creating a Chrome tab. If that evidence is unavailable, the run fails clearly instead of silently opening a renderer.
 
-`--render-fallback` explicitly permits DOM and screenshot fallback. macOS may activate Chrome when a rendering target is created, even when CDP marks it as background. Successful screenshots remain `degraded` evidence rather than `complete`; missing screenshots are `incomplete`. `--allow-focus` is retained as a compatibility alias.
+`--render-fallback` explicitly permits DOM and screenshot fallback. macOS may activate Chrome when a rendering target is created, even when CDP marks it as background. Successful sheet screenshots remain `degraded` evidence rather than `complete`; missing screenshots are `incomplete`. Board screenshots are a normal pass. `--allow-focus` is retained as a compatibility alias.
 
 ## Process exit codes
 

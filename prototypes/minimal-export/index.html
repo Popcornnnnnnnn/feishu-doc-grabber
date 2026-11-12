@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feishu Grabber — Minimal UI Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <section class="window" aria-label="Feishu Grabber Web prototype">
+        <header class="titlebar">
+          <div class="traffic-lights" aria-hidden="true">
+            <span class="traffic-light close"></span>
+            <span class="traffic-light minimize"></span>
+            <span class="traffic-light maximize"></span>
+          </div>
+
+          <div class="brand">
+            <img src="../../macos/AppIcon-1024.png" alt="" />
+            <span>Feishu Grabber</span>
+          </div>
+
+          <button class="icon-button" id="settingsButton" type="button" aria-label="Open Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 8.25A3.75 3.75 0 1 0 12 15.75 3.75 3.75 0 0 0 12 8.25Zm8 3.75-.06-.7 1.58-1.23-1.75-3.03-1.94.78a8.4 8.4 0 0 0-1.18-.7l-.3-2.05h-3.5l-.3 2.05c-.42.2-.81.44-1.18.7l-1.94-.78-1.75 3.03 1.58 1.23-.06.7.06.7-1.58 1.23 1.75 3.03 1.94-.78c.37.27.76.5 1.18.7l.3 2.05h3.5l.3-2.05c.42-.2.81-.43 1.18-.7l1.94.78 1.75-3.03-1.58-1.23.06-.7Z" />
+            </svg>
+          </button>
+        </header>
+
+        <div class="screen-stack">
+          <section class="screen main-screen is-active" id="mainScreen" aria-labelledby="mainTitle">
+            <div class="export-panel">
+              <h1 class="visually-hidden" id="mainTitle">Export Document</h1>
+              <div class="command-row" id="commandRow">
+                <label class="url-field" for="documentUrl">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.6 13.4a1.98 1.98 0 0 0 2.8 0l3-3a1.98 1.98 0 1 0-2.8-2.8l-1.1 1.1M13.4 10.6a1.98 1.98 0 0 0-2.8 0l-3 3a1.98 1.98 0 1 0 2.8 2.8l1.1-1.1" />
+                  </svg>
+                  <input
+                    id="documentUrl"
+                    type="url"
+                    inputmode="url"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="Paste a Feishu or Lark document link"
+                  />
+                </label>
+                <button class="primary-button" id="primaryButton" type="button">Export</button>
+              </div>
+
+              <div class="status-row is-idle" id="statusRow" aria-live="polite">
+                <span class="status-dot"></span>
+                <span id="statusText"></span>
+              </div>
+              <div class="progress-track" id="exportProgress" aria-hidden="true">
+                <span></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="screen settings-screen" id="settingsScreen" aria-labelledby="settingsTitle">
+            <div class="settings-header">
+              <button class="back-button" id="backButton" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
+                Back
+              </button>
+              <h1 id="settingsTitle">Settings</h1>
+            </div>
+
+            <div class="settings-list">
+              <div class="setting-row path-row">
+                <div>
+                  <div class="setting-label">Save Location</div>
+                  <div class="setting-value" id="outputPath">~/Downloads/Feishu Exports</div>
+                </div>
+                <button class="quiet-button" id="changePathButton" type="button">Change</button>
+              </div>
+
+              <div class="setting-row">
+                <div>
+                  <div class="setting-label">Appearance</div>
+                  <div class="setting-description">Follow the system or use a fixed appearance</div>
+                </div>
+                <div class="segmented-control" role="group" aria-label="Appearance">
+                  <button class="segment is-selected" type="button" data-theme-choice="system">System</button>
+                  <button class="segment" type="button" data-theme-choice="light">Light</button>
+                  <button class="segment" type="button" data-theme-choice="dark">Dark</button>
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="account-copy">
+                  <span class="account-status" aria-hidden="true"></span>
+                  <div>
+                    <div class="setting-label">Feishu Account</div>
+                    <div class="setting-description">Signed In</div>
+                  </div>
+                </div>
+                <button class="quiet-button" type="button">Sign In Again</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="log-bar">
+          <button class="log-toggle" id="logToggle" type="button" aria-expanded="false" aria-controls="logDrawer">
+            <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+            <svg class="terminal-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 4 4-4 4M11 16h7" /></svg>
+            <span>Activity Log</span>
+          </button>
+        </footer>
+
+        <aside class="log-drawer" id="logDrawer" aria-hidden="true">
+          <div class="drawer-header">
+            <span>Activity Log</span>
+            <button class="icon-button small" id="closeLogButton" type="button" aria-label="Close Activity Log">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+            </button>
+          </div>
+          <pre id="logContent">Waiting for an export…</pre>
+        </aside>
+
+        <div class="toast" id="toast" role="status">Web prototype: the native app will open Finder</div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

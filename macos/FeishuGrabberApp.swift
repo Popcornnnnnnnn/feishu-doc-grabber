@@ -24,7 +24,7 @@ struct ExportDocument: Decodable, Identifiable {
     var detail: String {
         if let error, !error.isEmpty { return error }
         let issues = integrity.checks?.filter { $0.status != "pass" }.map(\.detail) ?? []
-        return issues.first ?? "所有完整性检查通过"
+        return issues.first ?? "All integrity checks passed"
     }
 }
 
@@ -91,11 +91,14 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
     @Published var outputBase: URL
     @Published var documents: [ExportDocument] = []
     @Published var logText = ""
-    @Published var message = "粘贴飞书文档链接即可开始"
+    @Published var message = ""
     @Published var isRunning = false
     @Published var isCheckingAuth = false
     @Published var authState: AuthenticationState = .checking
     @Published var showLog = false
+    @Published var renderFallback: Bool = UserDefaults.standard.object(forKey: "renderFallback") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(renderFallback, forKey: "renderFallback") }
+    }
     @Published private(set) var exportProgress: ExportProgressState?
 
     private var activeProcess: Process?
@@ -124,9 +127,17 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         parsedURLs().count
     }
 
+    var canOpenOutputFolder: Bool {
+        // 目录可能被用户手动删除（例如想重新导出），必须实时校验磁盘，
+        // 否则主按钮会卡在「打开文件夹」永远回不到「导出」
+        guard let folder = currentRunFolder,
+              FileManager.default.fileExists(atPath: folder.path) else { return false }
+        return documents.contains { $0.output != nil }
+    }
+
     func chooseOutputFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose export folder"
+        panel.title = "Choose Export Folder"
         panel.prompt = "Choose"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -140,15 +151,15 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         guard !isRunning else { return }
         authPollingTask?.cancel()
         authState = .checking
-        message = "正在打开隔离的 Chrome for Testing 登录窗口…"
+        message = "Opening the isolated Chrome for Testing sign-in window…"
         launchNode(script: chromeScript, arguments: ["login"]) { [weak self] code in
             guard let self else { return }
             if code == 0 {
-                self.message = "请在 Chrome for Testing 中完成登录，完成后会自动确认"
+                self.message = "Complete sign-in in Chrome for Testing. The app will confirm it automatically."
                 self.beginLoginPolling()
             } else {
                 self.authState = .unknown
-                self.message = "登录窗口启动失败，请展开运行日志查看原因"
+                self.message = "Could not open the sign-in window. Open Activity Log for details."
             }
         }
     }
@@ -164,14 +175,16 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         guard !isRunning else { return }
         let urls = parsedURLs()
         guard !urls.isEmpty else {
-            message = "请至少粘贴一个有效的飞书或 Lark 文档链接"
+            message = "Paste one valid Feishu or Lark document link."
             return
         }
         do {
             let folder = try makeRunFolder(prefix: "Feishu Export")
-            startExport(arguments: urls + ["--out", folder.path], folder: folder, expectedTotal: urls.count)
+            var args = urls + ["--out", folder.path]
+            if renderFallback { args.append("--render-fallback") }
+            startExport(arguments: args, folder: folder, expectedTotal: urls.count)
         } catch {
-            message = "无法创建输出目录：\(error.localizedDescription)"
+            message = "Could not create the export folder: \(error.localizedDescription)"
         }
     }
 
@@ -179,19 +192,21 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         guard !isRunning, retryCount > 0, let report = currentReportURL else { return }
         do {
             let folder = try makeRunFolder(prefix: "Feishu Retry")
+            var args = ["--retry", report.path, "--out", folder.path]
+            if renderFallback { args.append("--render-fallback") }
             startExport(
-                arguments: ["--retry", report.path, "--out", folder.path],
+                arguments: args,
                 folder: folder,
                 expectedTotal: retryCount
             )
         } catch {
-            message = "无法创建重试目录：\(error.localizedDescription)"
+            message = "Could not create the retry folder: \(error.localizedDescription)"
         }
     }
 
     func cancel() {
         guard let process = activeProcess, process.isRunning else { return }
-        message = "正在取消…"
+        message = "Cancelling…"
         process.terminate()
     }
 
@@ -245,13 +260,14 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
 
     private func parsedURLs() -> [String] {
         let allowed = ["feishu.cn", "larkoffice.com", "larksuite.com"]
-        let values = urlsText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        var seen = Set<String>()
-        return values.filter { value in
-            guard let url = URL(string: value), url.scheme == "https", let host = url.host else { return false }
-            guard allowed.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else { return false }
-            return seen.insert(value).inserted
-        }
+        let value = urlsText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              !value.contains(where: { $0.isWhitespace }),
+              let url = URL(string: value),
+              url.scheme == "https",
+              let host = url.host,
+              allowed.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else { return [] }
+        return [value]
     }
 
     private func makeRunFolder(prefix: String) throws -> URL {
@@ -267,24 +283,24 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         currentRunFolder = folder
         currentReportURL = nil
         documents = []
-        message = "正在后台导出…"
+        message = "Exporting in the background…"
         exportProgress = ExportProgressState(
             total: expectedTotal,
             completed: 0,
             current: 1,
             stage: "preparing",
-            message: "准备导出"
+            message: "Preparing export"
         )
         launchNode(script: grabScript, arguments: arguments) { [weak self] code in
             guard let self else { return }
             self.loadReport(from: folder)
             self.exportProgress = nil
             if code == 0 {
-                self.message = "导出完成，所有文档均为 complete"
+                self.message = "Export complete. Every document passed integrity checks."
             } else if code == 2 {
-                self.message = "导出完成，但有文档需要重试或人工查看"
+                self.message = "Export complete. Some documents need a retry or manual review."
             } else {
-                self.message = "导出失败，请查看结果和运行日志"
+                self.message = "Export failed. Open Activity Log for details."
             }
         }
     }
@@ -293,7 +309,7 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         let reportURL = folder.appendingPathComponent("export-report.json")
         guard let data = try? Data(contentsOf: reportURL),
               let report = try? JSONDecoder().decode(ExportReport.self, from: data) else {
-            message = "没有读取到有效的 export-report.json"
+            message = "No valid export-report.json was found."
             return
         }
         currentReportURL = reportURL
@@ -324,14 +340,14 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
                 if state == .signedIn {
                     self.authState = .signedIn
                     self.isCheckingAuth = false
-                    self.message = "登录成功，可以粘贴文档链接开始导出"
+                    self.message = "Signed in. Paste a document link to start exporting."
                     return
                 }
             }
 
             self.authState = .unknown
             self.isCheckingAuth = false
-            self.message = "没有自动确认登录状态，可点击状态标签重新检测"
+            self.message = "Sign-in could not be confirmed automatically. Check the account status again."
         }
     }
 
@@ -346,11 +362,11 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
         if showFeedback {
             switch state {
             case .signedIn:
-                message = "已登录，可以粘贴文档链接开始导出"
+                message = "Signed in. Paste a document link to start exporting."
             case .signedOut:
-                message = "尚未登录飞书"
+                message = "Not signed in to Feishu."
             case .unknown, .checking:
-                message = "暂时无法确认登录状态，请稍后重试"
+                message = "Sign-in status is temporarily unavailable. Try again shortly."
             }
         }
     }
@@ -419,17 +435,17 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
             stage: event.stage,
             message: event.message
         )
-        message = "正在导出 \(exportProgress?.counter ?? "") · \(event.message)"
+        message = "Exporting \(exportProgress?.counter ?? "") · \(event.message)"
         return true
     }
 
     private func launchNode(script: URL, arguments: [String], completion: @escaping (Int32) -> Void) {
         guard FileManager.default.isExecutableFile(atPath: nodeExecutable.path) else {
-            message = "App 内缺少 Node 运行时，请重新构建或安装"
+            message = "The bundled Node.js runtime is missing. Rebuild or reinstall the app."
             return
         }
         guard FileManager.default.fileExists(atPath: script.path) else {
-            message = "App 内缺少导出引擎，请重新构建或安装"
+            message = "The export engine is missing. Rebuild or reinstall the app."
             return
         }
 
@@ -490,7 +506,7 @@ final class ExportModel: ObservableObject, @unchecked Sendable {
             outputPipe = nil
             errorPipe = nil
             isRunning = false
-            message = "无法启动导出引擎：\(error.localizedDescription)"
+            message = "Could not start the export engine: \(error.localizedDescription)"
         }
     }
 }
@@ -506,10 +522,10 @@ private func statusColor(_ status: String) -> Color {
 
 private func statusLabel(_ status: String) -> String {
     switch status {
-    case "complete": return "完整"
-    case "degraded": return "降级"
-    case "incomplete": return "不完整"
-    case "failed": return "失败"
+    case "complete": return "Complete"
+    case "degraded": return "Degraded"
+    case "incomplete": return "Incomplete"
+    case "failed": return "Failed"
     default: return status
     }
 }
@@ -523,9 +539,9 @@ private enum AppearanceMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: return "系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
         }
     }
 
@@ -538,177 +554,80 @@ private enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-private struct StatusCount: View {
-    let value: Int
+private enum AppPage {
+    case main
+    case settings
+}
+
+private struct HoverSurface: ViewModifier {
+    let cornerRadius: CGFloat
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                isHovering ? Color(nsColor: .controlBackgroundColor) : .clear,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .onHover { isHovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovering)
+    }
+}
+
+private extension View {
+    func hoverSurface(cornerRadius: CGFloat = 8) -> some View {
+        modifier(HoverSurface(cornerRadius: cornerRadius))
+    }
+}
+
+private struct PrimaryActionButton: View {
     let title: String
-    let color: Color
+    let isWorking: Bool
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(title).foregroundStyle(.secondary)
-            Text("\(value)").fontWeight(.semibold)
-        }
-        .font(.caption)
-    }
-}
-
-private struct DocumentRow: View {
-    let document: ExportDocument
-    let open: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: document.status == "complete" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(statusColor(document.status))
-                .font(.system(size: 16))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(document.displayName)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Text(document.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text(statusLabel(document.status))
-                .font(.caption)
-                .foregroundStyle(statusColor(document.status))
-            if document.output != nil {
-                Button(action: open) {
-                    Image(systemName: "arrow.up.right")
+        Button(action: action) {
+            Group {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .accessibilityLabel("Exporting")
+                } else {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
                 }
-                .buttonStyle(.borderless)
-                .help("打开导出文件")
             }
+            .frame(minWidth: 88)
+            .frame(height: 52)
+            .padding(.horizontal, title == "Open Folder" ? 4 : 0)
+            .foregroundStyle(.white)
+            .background(
+                Color.accentColor.opacity(isHovering && !isWorking ? 0.9 : 1),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .shadow(color: Color.accentColor.opacity(isHovering ? 0.24 : 0.12), radius: isHovering ? 7 : 2, y: isHovering ? 3 : 1)
+            .scaleEffect(!reduceMotion && isHovering && !isWorking ? 1.01 : 1)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-}
-
-private final class PlaceholderTextView: NSTextView {
-    var placeholder = "" {
-        didSet { needsDisplay = true }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        guard string.isEmpty, !placeholder.isEmpty, let font else { return }
-        (placeholder as NSString).draw(
-            at: textContainerOrigin,
-            withAttributes: [
-                .font: font,
-                .foregroundColor: NSColor.placeholderTextColor
-            ]
-        )
-    }
-
-    override func didChangeText() {
-        super.didChangeText()
-        needsDisplay = true
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-}
-
-private struct LinkTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-
-        let textView = PlaceholderTextView(frame: .zero)
-        textView.delegate = context.coordinator
-        textView.isRichText = false
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.drawsBackground = false
-        textView.allowsUndo = true
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .controlAccentColor
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.placeholder = placeholder
-        textView.string = text
-
-        scrollView.documentView = textView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? PlaceholderTextView else { return }
-        context.coordinator.parent = self
-        if textView.string != text {
-            textView.string = text
-        }
-        textView.placeholder = placeholder
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .controlAccentColor
-        textView.needsDisplay = true
-    }
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: LinkTextEditor
-
-        init(parent: LinkTextEditor) {
-            self.parent = parent
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
-        }
-    }
-}
-
-struct ExportProgressView: View {
-    let progress: ExportProgressState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text("正在导出 \(progress.counter)")
-                    .font(.caption.weight(.medium))
-                Text(progress.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: progress.fraction)
-                .progressViewStyle(.linear)
-                .controlSize(.small)
-                .accessibilityLabel("导出进度")
-                .accessibilityValue("\(progress.counter)，\(progress.message)")
-        }
-        .frame(maxWidth: 360)
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }
 
 struct ContentView: View {
+    private let titlebarInset: CGFloat = 33
+
     @StateObject private var model = ExportModel()
     @AppStorage("appearanceMode") private var appearanceRawValue = AppearanceMode.system.rawValue
+    @State private var page: AppPage = .main
+    @State private var submittedURL = ""
+    @FocusState private var urlFieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var appearance: AppearanceMode {
         AppearanceMode(rawValue: appearanceRawValue) ?? .system
@@ -721,221 +640,438 @@ struct ContentView: View {
         )
     }
 
-    private var counts: [String: Int] {
-        Dictionary(grouping: model.documents, by: \.status).mapValues(\.count)
+    private var currentInput: String {
+        model.urlsText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canOpenCurrentFolder: Bool {
+        !submittedURL.isEmpty && currentInput == submittedURL && model.canOpenOutputFolder && !model.isRunning
+    }
+
+    private var completionSummary: (text: String, color: Color)? {
+        guard !model.documents.isEmpty, currentInput == submittedURL else { return nil }
+        if model.documents.contains(where: { $0.operationalStatus != "success" }) {
+            return ("Export failed", .red)
+        }
+        if model.documents.contains(where: { $0.integrity.verdict == "incomplete" }) {
+            return ("Exported with missing content", .orange)
+        }
+        if model.documents.allSatisfy({ $0.integrity.verdict == "complete" }) {
+            return ("Exported", .green)
+        }
+        // degraded：资源全部导出，但存在视觉兜底（如画板截图），结构完整性无法证明
+        return ("Exported with visual fallbacks", .orange)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    exportSection
-                    if !model.documents.isEmpty {
-                        resultsSection
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                header
+                Divider()
+                ZStack {
+                    if page == .main {
+                        mainScreen
+                            .transition(screenTransition(edge: .leading))
+                    } else {
+                        settingsScreen
+                            .transition(screenTransition(edge: .trailing))
                     }
                 }
-                .frame(maxWidth: 760)
-                .padding(24)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    Divider()
+                    logBar
+                }
+                // The header draws into the hidden macOS titlebar. Move the footer by
+                // the same reserved inset so the window does not retain a blank chin.
+                .offset(y: titlebarInset)
             }
-            Divider()
-            logSection
+
+            if model.showLog {
+                logDrawer
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 52 - titlebarInset)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(4)
+            }
         }
-        .frame(minWidth: 680, minHeight: 460)
+        .frame(width: 920, height: 507)
+        .ignoresSafeArea(.container, edges: .top)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(appearance.colorScheme)
+        .animation(.easeOut(duration: 0.2), value: page)
+        .animation(.easeOut(duration: 0.18), value: model.showLog)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                urlFieldFocused = true
+            }
+        }
+        .onChange(of: model.urlsText) { newValue in
+            guard !model.isRunning, newValue.trimmingCharacters(in: .whitespacesAndNewlines) != submittedURL else { return }
+            model.message = ""
+        }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 30, height: 30)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            Text("Feishu Grabber")
-                .font(.headline)
-            Spacer()
-            Picker("外观", selection: appearanceSelection) {
-                ForEach(AppearanceMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+    private func screenTransition(edge: Edge) -> AnyTransition {
+        reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
+    }
+
+    private var header: some View {
+        ZStack {
+            HStack {
+                Spacer()
+                if page == .main {
+                    Button {
+                        urlFieldFocused = false
+                        withAnimation {
+                            model.showLog = false
+                            page = .settings
+                        }
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 34, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverSurface(cornerRadius: 9)
+                    .help("Settings")
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 156)
-            .help("切换界面外观")
-            accountControl
+
+            HStack(spacing: 10) {
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 30, height: 30)
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text("Feishu Grabber")
+                    .font(.system(size: 15, weight: .semibold))
+            }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        .frame(height: 50)
+        .padding(.horizontal, 24)
+    }
+
+    private var mainScreen: some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "link")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        TextField(
+                            "",
+                            text: $model.urlsText,
+                            prompt: Text("Paste a Feishu or Lark document link")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(nsColor: .placeholderTextColor))
+                        )
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 14, design: .monospaced))
+                            .focused($urlFieldFocused)
+                            .disabled(model.isRunning)
+                            .onSubmit { performPrimaryAction() }
+                            .accessibilityLabel("Feishu or Lark document link")
+                    }
+                    .padding(.horizontal, 15)
+                    .frame(height: 52)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(urlFieldFocused ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: urlFieldFocused ? 1.5 : 1)
+                    )
+                    .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+
+                    PrimaryActionButton(
+                        title: canOpenCurrentFolder ? "Open Folder" : "Export",
+                        isWorking: model.isRunning,
+                        action: performPrimaryAction
+                    )
+                }
+
+                statusAndProgress
+            }
+            .frame(maxWidth: 720)
+            .offset(y: -8)
+            Spacer()
+        }
+        .padding(.horizontal, 64)
     }
 
     @ViewBuilder
-    private var accountControl: some View {
-        switch model.authState {
-        case .signedIn:
-            Menu {
-                Button("检测登录状态") { model.refreshAuthentication() }
-                Divider()
-                Button("重新登录") { model.login() }
-            } label: {
-                Label("已登录", systemImage: "checkmark.circle.fill")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        case .checking:
-            HStack(spacing: 7) {
-                ProgressView().controlSize(.small)
-                Text("检测登录")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(width: 78)
-        case .signedOut, .unknown:
-            Button { model.login() } label: {
-                Label("登录飞书", systemImage: "person.crop.circle")
-            }
-            .disabled(model.isRunning || model.isCheckingAuth)
-        }
-    }
-
-    private var exportSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("导出文档")
-                        .font(.title3.weight(.semibold))
-                    Spacer()
-                    if model.validURLCount > 0 {
-                        Text("\(model.validURLCount) 个链接")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+    private var statusAndProgress: some View {
+        if model.isRunning {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 7, height: 7)
+                    Text(model.exportProgress?.message ?? "Preparing export")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                }
+                GeometryReader { geometry in
+                    let fraction = model.exportProgress?.fraction ?? 0.03
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.accentColor.opacity(0.14))
+                        Capsule()
+                            .fill(Color.accentColor)
+                            .frame(width: max(3, geometry.size.width * fraction))
                     }
+                    .animation(.easeOut(duration: 0.32), value: fraction)
                 }
-                Text("粘贴一个或多个飞书 / Lark 文档链接，每行一个。")
-                    .font(.callout)
+                .frame(height: 3)
+                    .accessibilityLabel("Export progress")
+                    .accessibilityValue(model.exportProgress.map { "\($0.counter), \($0.message)" } ?? "Preparing export")
+            }
+            .padding(.top, 12)
+            .padding(.horizontal, 3)
+        } else if let completionSummary {
+            HStack(spacing: 8) {
+                Circle().fill(completionSummary.color).frame(width: 7, height: 7)
+                Text(completionSummary.text)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
             }
-
-            LinkTextEditor(
-                text: $model.urlsText,
-                placeholder: "https://example.feishu.cn/wiki/…"
-            )
-            .frame(height: 138)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-            )
-
-            HStack(spacing: 10) {
-                Image(systemName: "folder")
+            .padding(.top, 12)
+            .padding(.horizontal, 3)
+        } else if !model.message.isEmpty {
+            HStack(spacing: 8) {
+                Circle().fill(Color.red).frame(width: 7, height: 7)
+                Text(model.message)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("保存位置")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(model.outputBase.path)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-                Spacer()
-                Button("更改…") { model.chooseOutputFolder() }
-                    .disabled(model.isRunning)
+                    .lineLimit(1)
             }
-            .padding(11)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-
-            HStack(spacing: 12) {
-                if model.isRunning, let progress = model.exportProgress {
-                    ExportProgressView(progress: progress)
-                } else {
-                    Image(systemName: model.authState == .signedIn ? "checkmark.circle" : "info.circle")
-                        .foregroundStyle(.secondary)
-                    Text(model.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                if model.isRunning {
-                    Button("取消", role: .destructive) { model.cancel() }
-                }
-                Button(model.isRunning ? "正在导出…" : "开始导出") {
-                    model.export()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .disabled(model.isRunning || model.validURLCount == 0)
-            }
-
-            Text("正文、表格、评论和附件会随完整性报告一起导出。")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            .padding(.top, 12)
+            .padding(.horizontal, 3)
         }
     }
 
-    private var resultsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Divider()
-            HStack {
-                Text("导出结果")
-                    .font(.headline)
-                Spacer()
-                Button("结果页") { model.openResultPage() }
-                Button("在 Finder 中显示") { model.openOutputFolder() }
+    private var settingsScreen: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                HStack {
+                    Button {
+                        withAnimation { page = .main }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            urlFieldFocused = true
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .hoverSurface()
+                    Spacer()
+                }
+                Text("Settings")
+                    .font(.system(size: 18, weight: .semibold))
             }
-            HStack(spacing: 16) {
-                StatusCount(value: counts["complete", default: 0], title: "完整", color: .green)
-                StatusCount(value: counts["degraded", default: 0], title: "降级", color: .orange)
-                StatusCount(value: counts["incomplete", default: 0], title: "不完整", color: .red)
-                StatusCount(value: counts["failed", default: 0], title: "失败", color: .red)
-                Spacer()
-                if model.retryCount > 0 {
-                    Button("重试未完成项") { model.retry() }
+            .frame(maxWidth: 700)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Save Location").font(.system(size: 13.5, weight: .medium))
+                        Text((model.outputBase.path as NSString).abbreviatingWithTildeInPath)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button("Change") { model.chooseOutputFolder() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                         .disabled(model.isRunning)
                 }
-            }
-            VStack(spacing: 0) {
-                ForEach(model.documents) { document in
-                    DocumentRow(document: document) { model.openOutput(document) }
-                    if document.id != model.documents.last?.id {
-                        Divider().padding(.leading, 40)
+                .padding(.horizontal, 16)
+                .frame(height: 72)
+
+                Divider()
+
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Appearance").font(.system(size: 13.5, weight: .medium))
+                        Text("Follow the system or use a fixed appearance")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    Picker("Appearance", selection: appearanceSelection) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 150)
                 }
+                .padding(.horizontal, 16)
+                .frame(height: 72)
+
+                Divider()
+
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Render Fallback").font(.system(size: 13.5, weight: .medium))
+                        Text("Export whiteboard and table screenshots; may briefly bring Chrome forward")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $model.renderFallback)
+                        .labelsHidden()
+                        .disabled(model.isRunning)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 72)
+
+                Divider()
+
+                HStack(spacing: 24) {
+                    HStack(spacing: 10) {
+                        Group {
+                            if model.authState == .checking {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Circle()
+                                    .fill(accountStatusColor)
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                        .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Feishu Account").font(.system(size: 13.5, weight: .medium))
+                            Text(accountStatusText)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button(model.authState == .signedIn ? "Sign In Again" : "Sign In") { model.login() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(model.isRunning || model.isCheckingAuth)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 72)
             }
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
             )
+            .frame(maxWidth: 700)
+
+            Spacer()
+        }
+        .padding(.top, 28)
+        .padding(.horizontal, 64)
+        .padding(.bottom, 44)
+    }
+
+    private var accountStatusText: String {
+        switch model.authState {
+        case .signedIn: return "Signed In"
+        case .signedOut: return "Not Signed In"
+        case .checking: return "Checking"
+        case .unknown: return "Status Unavailable"
         }
     }
 
-    private var logSection: some View {
-        DisclosureGroup(isExpanded: $model.showLog) {
+    private var accountStatusColor: Color {
+        switch model.authState {
+        case .signedIn: return .green
+        case .signedOut: return .red
+        case .checking, .unknown: return .secondary
+        }
+    }
+
+    private var logBar: some View {
+        HStack {
+            Button {
+                withAnimation { model.showLog.toggle() }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: model.showLog ? "chevron.up" : "chevron.right")
+                    Image(systemName: "terminal")
+                    Text("Activity Log")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .frame(height: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .hoverSurface(cornerRadius: 7)
+            Spacer()
+        }
+        .padding(.horizontal, 17)
+        .frame(height: 46)
+    }
+
+    private var logDrawer: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Activity Log")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button {
+                    withAnimation { model.showLog = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverSurface(cornerRadius: 7)
+                .help("Close Activity Log")
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 8)
+            .frame(height: 42)
+
+            Divider()
+
             ScrollView {
-                Text(model.logText.isEmpty ? "暂无运行日志。" : model.logText)
-                    .font(.system(size: 11, design: .monospaced))
+                Text(model.logText.isEmpty ? "Waiting for an export…" : model.logText)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(14)
             }
-            .frame(maxHeight: 130)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-            .padding(.top, 8)
-        } label: {
-            Label("运行日志", systemImage: "terminal")
-                .font(.caption)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .frame(height: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 24, y: 10)
+    }
+
+    private func performPrimaryAction() {
+        if canOpenCurrentFolder {
+            model.openOutputFolder()
+            return
+        }
+        submittedURL = currentInput
+        model.export()
     }
 }
 
@@ -960,7 +1096,8 @@ struct FeishuGrabberApp: App {
             ContentView()
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 760, height: 520)
+        .defaultSize(width: 920, height: 507)
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
         }

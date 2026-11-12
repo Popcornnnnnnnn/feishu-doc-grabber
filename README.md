@@ -83,6 +83,22 @@ feishu-grab <url> --browser isolated --format pdf --out ./exports
 
 `--browser isolated` automatically starts the existing isolated profile headlessly for Markdown. Direct `node grab.mjs` calls retain the isolated default for compatibility with the macOS app and existing integrations. The new `cli.mjs` entry point and installed `feishu-grab` command default to daily Chrome.
 
+## Chrome extension preview
+
+Build the extension with `npm run build:extension`. Load the generated
+`dist/Feishu Grabber Extension/` folder through Chrome's **Load unpacked** command,
+then click the extension icon while viewing a Feishu/Lark document. A small toolbar
+popup detects the current document; click **Export**. The icon is disabled on
+unrelated pages. Exports continue after the popup closes; reopen it to see progress
+and results. Keep Chrome and the source document open. The extension uses that Chrome profile's existing sign-in and saves a ZIP containing Markdown,
+local assets, and an integrity report. The popup settings also support folder
+output, a download subfolder, ZIP save-location prompts, and System/Light/Dark appearance. It does not require the desktop app or Node
+on the user's computer. See [extension setup and limits](extension/README.md).
+
+Run `npm run test:extension` for the headless Chrome extension integration suite.
+It uses synthetic Feishu responses and a temporary profile; it does not count as
+live-account compatibility verification.
+
 ## macOS app
 
 Build the self-contained Apple Silicon app:

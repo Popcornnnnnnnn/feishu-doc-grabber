@@ -57,7 +57,7 @@ function usage() { console.log(helpText('export')); }
 
 async function connect() {
   if (!(await reachable())) {
-    console.log('→ AI Chrome for Testing 未运行，正在拉起…');
+    console.log('→ Starting AI Chrome for Testing…');
     await ensureRunning();
   }
   const res = await fetch(`http://127.0.0.1:${AI_PORT}/json/version`);
@@ -104,7 +104,7 @@ async function openDoc(page, url, timeoutMs) {
 
   const curUrl = page.url();
   if (/accounts\.|passport\.|\/login/.test(curUrl)) {
-    throw new Error('未登录飞书。请先登录一次: aichrome open https://feishu.cn （登录态会持久保存）');
+    throw new Error('Not signed in to Feishu. Sign in once with: feishu-chrome login. Your session will be saved.');
   }
   // 404 检测：避免把 404 页当文档导出
   const notFound = await page.evaluate(() =>
@@ -112,20 +112,20 @@ async function openDoc(page, url, timeoutMs) {
     /doesn.t exist|页面不存在|文档不存在/.test(document.body?.innerText?.slice(0, 2000) || '')
   ).catch(() => false);
   if (notFound) {
-    throw new Error('文档不存在或无权限（404）。请从浏览器地址栏重新复制链接（注意 I/l、O/0 易混字符）');
+    throw new Error('The document does not exist or is not accessible (404). Copy the link again from the browser address bar and check ambiguous characters such as I/l and O/0.');
   }
 
   await page.waitForSelector(
     ['.render-unit-wrapper', '.docx-editor', '[data-block-id]', '[data-page-id]'].join(', '),
     { timeout: 60000 }
-  ).catch(() => console.log('⚠ 未等到已知编辑器节点，继续尝试'));
+  ).catch(() => console.log('⚠ No known editor element appeared; continuing anyway.'));
   return page;
 }
 
 async function scrollDoc(page) {
-  console.log('→ 自动滚动加载中…');
+  console.log('→ Auto-scrolling to load content…');
   const r = await autoScroll(page);
-  console.log(`✓ 滚动完成（${(r.elapsedMs / 1000).toFixed(1)}s，未加载图片 ${r.pendingImages}）`);
+  console.log(`✓ Scrolling complete (${(r.elapsedMs / 1000).toFixed(1)}s, ${r.pendingImages} images still pending)`);
   return r;
 }
 
@@ -148,7 +148,7 @@ async function grabPdf(browser, url, outDir, timeoutMs) {
       path: file, printBackground: true, preferCSSPageSize: false, format: 'A4',
       margin: { top: '10mm', bottom: '10mm', left: '8mm', right: '8mm' }, timeout: 120000,
     });
-    console.log(`✓ 已导出: ${file}`);
+    console.log(`✓ Exported: ${file}`);
     return { url, ok: true, file };
   } finally { await page.close().catch(() => {}); }
 }
@@ -173,7 +173,7 @@ async function downloadImages(browser, pageUrl, images, assetsDir, urlPrefixRewr
       map.set(src, join(urlPrefixRewrite, name));
       process.stdout.write(`  🖼 ${map.size}/${images.length}\r`);
     } catch (e) {
-      console.warn(`  ⚠ 图片下载失败: ${src.slice(0, 80)} (${e.message})`);
+      console.warn(`  ⚠ Image download failed: ${src.slice(0, 80)} (${e.message})`);
     }
   }
   process.stdout.write('\n');
@@ -185,8 +185,26 @@ async function downloadImages(browser, pageUrl, images, assetsDir, urlPrefixRewr
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 
-function pageTarget(browser) {
-  return browser.targets().filter((t) => t.type() === 'page')[0];
+async function pageTarget(browser) {
+  const existing = browser.targets().find((target) => target.type() === 'page');
+  if (existing) return existing;
+
+  // A signed-in Chrome process can remain alive after its last window closes.
+  // Keep the persisted profile usable by creating a background session target
+  // instead of requiring the user to open or keep a tab around.
+  const cdp = await browser.target().createCDPSession();
+  try {
+    const { targetId } = await cdp.send('Target.createTarget', {
+      url: 'about:blank',
+      background: true,
+    });
+    return await browser.waitForTarget(
+      (target) => target._targetId === targetId && target.type() === 'page',
+      { timeout: 15000 },
+    );
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
 }
 
 async function getCookiesFor(browser, urls) {
@@ -233,7 +251,7 @@ async function canonicalizeUrl(browser, url) {
         const canonical = r.data.wiki_token;
         const objToken = r.data.obj_token || null;
         if (canonical !== m[1]) {
-          console.log(`ℹ wiki token 规范化: ${m[1]} → ${canonical}`);
+          console.log(`ℹ Normalized wiki token: ${m[1]} → ${canonical}`);
           return { url: url.replace(m[1], canonical), objToken };
         }
         return { url, objToken };
@@ -293,7 +311,7 @@ async function fetchPaginatedClientVars(browser, url, html) {
   const cursors = Array.isArray(initial.next_cursors) ? initial.next_cursors : [];
   if (!initial.id || !cursors.length) return initial;
   if (cursors.length > 100) {
-    console.warn(`⚠ 分页 cursor 数量异常（${cursors.length}），保留首批并标记为不完整`);
+    console.warn(`⚠ Unexpected pagination cursor count (${cursors.length}); keeping the first batch and marking the export incomplete.`);
     return initial;
   }
 
@@ -315,12 +333,12 @@ async function fetchPaginatedClientVars(browser, url, html) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       if (payload?.code !== 0 || !payload?.data?.block_map) {
-        throw new Error(payload?.msg || '响应缺少 block_map');
+        throw new Error(payload?.msg || 'Response is missing block_map');
       }
       pages.push(payload.data);
-      console.log(`  分页 ${i + 1}/${cursors.length}：${Object.keys(payload.data.block_map).length} 块`);
+      console.log(`  Page ${i + 1}/${cursors.length}: ${Object.keys(payload.data.block_map).length} blocks`);
     } catch (error) {
-      console.warn(`⚠ 分页 ${i + 1}/${cursors.length} 拉取失败：${error.message}`);
+      console.warn(`⚠ Failed to fetch page ${i + 1}/${cursors.length}: ${error.message}`);
       break;
     }
   }
@@ -336,8 +354,12 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
   const referer = url;
   const map = new Map(); // 占位符 -> 相对路径
-  const dl = async (endpoint, token, blockId, kind) => {
-    const r = await sessionFetch(browser, `https://${streamHost}/space/api/box/stream/download/${endpoint}/${token}/?mount_node_token=${blockId}&policy=equal`,
+  // 实测（2026-09，对照真实浏览器抓包 + 前端 bundle 逆向）：
+  // - `all` 端点对当前会话一律 403；preview + preview_type=16（前端 ORIGIN_FILE）无需 mount 参数即拿原件，
+  //   且图片比 v2/cover 更大（cover 是服务端转码版，非真原图）
+  // - v2/cover + mount_point=docx_image 可作图片降级备选；对附件只返回缩略图
+  const dl = async (endpoint, token, blockId, kind, mountPoint, extraQuery = '') => {
+    const r = await sessionFetch(browser, `https://${streamHost}/space/api/box/stream/download/${endpoint}/${token}/?mount_node_token=${blockId}&mount_point=${mountPoint}&policy=equal${extraQuery}`,
       { headers: { cookie, 'user-agent': UA, referer } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const buf = Buffer.from(await r.arrayBuffer());
@@ -349,23 +371,23 @@ async function downloadSsrMedia(browser, url, images, files, assetsDir, outDir) 
   };
   for (const img of images) {
     try {
-      const { buf, extension: ext } = await dl('all', img.token, img.blockId, 'image');
+      const { buf, extension: ext } = await dl('preview', img.token, img.blockId, 'image', 'docx_image', '&preview_type=16');
       const file = `${img.token.slice(0, 16)}.${ext}`;
       writeFileSync(join(assetsDir, file), buf);
       map.set(`ssrimg://${img.token}/${img.blockId}`, `assets/${file}`);
       console.log(`  🖼 ${img.name} (${(buf.length / 1024).toFixed(0)}KB)`);
-    } catch (e) { console.warn(`  ⚠ 图片下载失败 ${img.token}: ${e.message}`); }
+    } catch (e) { console.warn(`  ⚠ Image download failed ${img.token}: ${e.message}`); }
   }
   for (const f of files) {
     try {
-      const { buf } = await dl('all', f.token, f.blockId, 'file');
+      const { buf } = await dl('preview', f.token, f.blockId, 'file', 'docx_file', '&preview_type=16');
       const name = safeName(f.name) || f.token;
       let file = name, n = 1;
       while (existsSync(join(outDir, file))) file = name.replace(/(\.[^.]*)?$/, m => ` (${n++})${m ?? ''}`);
       writeFileSync(join(outDir, file), buf);
       map.set(`ssrfile://${f.token}/${f.blockId}`, encodeURIComponent(file));
       console.log(`  📎 ${file} (${(buf.length / 1048576).toFixed(1)}MB)`);
-    } catch (e) { console.warn(`  ⚠ 附件下载失败 ${f.token}: ${e.message}`); }
+    } catch (e) { console.warn(`  ⚠ Attachment download failed ${f.token}: ${e.message}`); }
   }
   return map;
 }
@@ -448,14 +470,14 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
   const onProgress = options.onProgress || (() => {});
 
   // token 规范化（SSR/DOM 两条路线都要用 objToken 拉评论）
-  onProgress('reading', '读取文档信息');
+  onProgress('reading', 'Reading document information');
   const canon = await canonicalizeUrl(browser, url);
   const canonUrl = canon.url;
   const objToken = canon.objToken;
 
   // —— 路线 1（Phase C）: SSR 直取，无需打开页面 ——
   if (mode === 'md') {
-    console.log('→ SSR 直取（不渲染页面）…');
+    console.log('→ Reading SSR directly without rendering the page…');
     let parsed = null, html = '', clientVarsData = null;
     // sheet 的 SSR SVG 服务端存在分钟级波动，多试几种变体
     const forms = [canonUrl, canonUrl + '?chunked=false', canonUrl + '?r=' + Date.now()];
@@ -467,7 +489,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           : 'Not signed in to Feishu. Run feishu-chrome login and complete sign-in once.');
       }
       if (/<title>[^<]*404[^<]*<\/title>/.test(html)) {
-        throw new Error('文档不存在或无权限（404）。请从浏览器地址栏重新复制链接（注意 I/l、O/0 易混字符），或确认文档未被移动/删除');
+        throw new Error('The document does not exist or is not accessible (404). Copy the link again from the browser address bar, check ambiguous characters such as I/l and O/0, and confirm that the document was not moved or deleted.');
       }
       clientVarsData = await fetchPaginatedClientVars(browser, forms[i % forms.length], html);
       parsed = clientVarsData
@@ -476,11 +498,11 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       if (parsed?.markdown?.trim()) {
         const hasAllSheets = (parsed.sheetFallbacks?.length || 0) === 0;
         if (hasAllSheets) break;
-        console.log(`  sheet SSR 未就绪（${i + 1}/${forms.length * 2}），重试…`);
+        console.log(`  Sheet SSR is not ready (${i + 1}/${forms.length * 2}); retrying…`);
       }
     }
     if (parsed?.markdown?.trim()) {
-      onProgress('body', '解析正文');
+      onProgress('body', 'Parsing document body');
       const rawTitle = parsed.title || /<title>([^<]*)<\/title>/.exec(html)?.[1] || 'untitled';
       const title = safeName(rawTitle).replace(/ - (飞书云文档|Feishu Docs|飞书)$/, '');
       const file = join(outDir, `${title}.md`);
@@ -488,8 +510,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let sheetFallbacks = parsed.sheetFallbacks || [];
       let structuredSheets = [];
       if (parsed.sheets.length) {
-        onProgress('tables', '处理表格');
-        console.log(`→ 后台读取 ${parsed.sheets.length} 个 Sheet 的结构化数据…`);
+        onProgress('tables', 'Processing tables');
+        console.log(`→ Reading structured data for ${parsed.sheets.length} Sheet(s) in the background…`);
         structuredSheets = await captureStructuredSheets(browser, canonUrl, parsed.sheets, timeoutMs);
         for (const result of structuredSheets) {
           if (!result.sheet?.structuredComplete) {
@@ -498,7 +520,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           }
           const item = parsed.sheets.find((sheet) => sheet.token === result.requested.token);
           if (!item) continue;
-          const placeholder = `![表格](ssrsheet://${item.token}/${item.blockId})`;
+          const placeholder = `![Table](ssrsheet://${item.token}/${item.blockId})`;
           const part = parts.find((entry) => entry.id === item.blockId);
           if (part && !part.md.includes(placeholder)) part.md = result.sheet.markdown;
           else for (const entry of parts) entry.md = entry.md.split(placeholder).join(result.sheet.markdown);
@@ -506,20 +528,20 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           mkdirSync(join(outDir, 'assets'), { recursive: true });
           const { markdown: _markdown, token: _token, sourceToken: _sourceToken, ...sheetData } = result.sheet;
           writeFileSync(join(outDir, 'assets', sidecar), JSON.stringify(sheetData, null, 2));
-          console.log(`  ▦ ${result.sheet.sheetId}: ${result.sheet.cells.length} 个非空单元格 → assets/${sidecar}`);
+          console.log(`  ▦ ${result.sheet.sheetId}: ${result.sheet.cells.length} non-empty cells → assets/${sidecar}`);
         }
         const completeTokens = new Set(structuredSheets.filter((item) => item.sheet?.structuredComplete).map((item) => item.requested.token));
         sheetFallbacks = sheetFallbacks.filter((item) => !completeTokens.has(item.token));
       }
       const sheetsNeedShot = sheetFallbacks.length > 0;
-      if (sheetsNeedShot) console.log(`⚠ ${sheetFallbacks.length} 个 Sheet 结构化读取不完整，将走后台截图兜底`);
+      if (sheetsNeedShot) console.log(`⚠ Structured extraction is incomplete for ${sheetFallbacks.length} Sheet(s); using background screenshot fallback.`);
       // 评论线程（锚点 → 顶层块）
       let threads = [];
       let commentStatus = objToken ? 'checked' : 'unknown';
       let commentError = null;
       let resolveTop = (blockId) => blockId;
       try {
-        onProgress('comments', '读取评论');
+        onProgress('comments', 'Reading comments');
         const cvJson = clientVarsData ? null : extractClientVars(html);
         const bmap = clientVarsData?.block_map ?? (cvJson ? JSON.parse(cvJson)?.data?.block_map : null);
         const parentOf = {};
@@ -538,11 +560,11 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           return null;
         };
         threads = await fetchCommentThreads(browser, objToken, canonUrl);
-        if (threads.length) console.log(`→ 拉取到评论 ${threads.length} 条，插入到对应段落…`);
+        if (threads.length) console.log(`→ Retrieved ${threads.length} comment thread(s) and inserted them at their source paragraphs…`);
       } catch (e) {
         commentStatus = 'failed';
         commentError = e.message;
-        console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`);
+        console.warn(`⚠ Could not retrieve comments: ${e.message.slice(0, 80)}`);
       }
       // 评论锚点标记：追加到锚点块所在顶层 part 末尾
       threads.forEach((th, i) => {
@@ -557,8 +579,8 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       let sheetFallbackCount = 0;
       const needMedia = parsed.images.length || parsed.files.length || parsed.whiteboards.length || sheetsNeedShot;
       if (needMedia) {
-        onProgress('attachments', '处理图片和附件');
-        console.log(`→ 下载图片 ${parsed.images.length} 张 / 附件 ${parsed.files.length} 个 / 画板 ${parsed.whiteboards.length} 块…`);
+        onProgress('attachments', 'Processing images and attachments');
+        console.log(`→ Downloading ${parsed.images.length} image(s), ${parsed.files.length} attachment(s), and ${parsed.whiteboards.length} whiteboard(s)…`);
         const map = await downloadSsrMedia(browser, canonUrl, parsed.images, parsed.files, join(outDir, 'assets'), outDir);
         imageCount = parsed.images.filter((img) => map.has(`ssrimg://${img.token}/${img.blockId}`)).length;
         attachmentCount = parsed.files.filter((item) => map.has(`ssrfile://${item.token}/${item.blockId}`)).length;
@@ -574,12 +596,12 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
           whiteboardCount = parsed.whiteboards.filter((item) => bmap.has(`ssrboard://${item.token}/${item.blockId}`)).length;
           sheetFallbackCount = sheetFallbacks.filter((item) => bmap.has(`ssrsheet://${item.token}/${item.blockId}`)).length;
           for (const [ph, rel] of bmap) body = body.split(ph).join(rel);
-          body = body.replace(/!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g, '> 🎨 $1（截图失败，请在飞书查看）');
+          body = body.replace(/!\[(Whiteboard|Table)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g, '> 🎨 $1 screenshot failed. View it in Feishu.');
         } else if (parsed.whiteboards.length || sheetsNeedShot) {
-          console.warn('⚠ 跳过需要页面渲染的画板/Sheet 兜底；如需截图请显式添加 --render-fallback');
+          console.warn('⚠ Skipped whiteboard and Sheet fallbacks that require page rendering. Add --render-fallback to capture screenshots.');
           body = body.replace(
-            /!\[(画板|表格)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g,
-            '> ⚠ $1需要页面渲染；本次为零渲染后台导出，未生成截图',
+            /!\[(Whiteboard|Table)\]\((ssrboard|ssrsheet):\/\/[^)]+\)/g,
+            '> ⚠ $1 requires page rendering. No screenshot was generated during this zero-render background export.',
           );
         }
       }
@@ -587,10 +609,10 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       body = renderMarkdownImagesInHtmlTables(body);
       const markdownImagesInHtmlTables = countMarkdownImagesInHtmlTables(body);
       writeFileSync(file, `# ${title}\n\n${body}\n`);
-      console.log(`✓ SSR 解析成功: 块 ${parsed.stats.blocks}（${JSON.stringify(parsed.stats.types)}），sheet SVG ${parsed.stats.sheets}`);
-      if (parsed.stats.hasMore) console.log('⚠ 分页未拉取完，结果不完整');
-      console.log(`✓ 已导出: ${file}`);
-      onProgress('integrity', '检查导出完整性');
+      console.log(`✓ SSR parsed successfully: ${parsed.stats.blocks} blocks (${JSON.stringify(parsed.stats.types)}), ${parsed.stats.sheets} Sheet SVG(s)`);
+      if (parsed.stats.hasMore) console.log('⚠ Pagination did not finish; the export is incomplete.');
+      console.log(`✓ Exported: ${file}`);
+      onProgress('integrity', 'Checking export integrity');
       const integrity = evaluateIntegrity({
         route: 'ssr',
         bodyPresent: Boolean(body.trim()),
@@ -617,16 +639,16 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
       return { url, ok: true, file, integrity };
     }
     if (!options.allowRender) {
-      throw new Error('SSR 数据不可用；零渲染后台模式不会打开 Chrome 页面。可显式添加 --render-fallback 进行 DOM 兜底');
+      throw new Error('SSR data is unavailable. Zero-render background mode will not open a Chrome page. Add --render-fallback to use the DOM fallback.');
     }
-    onProgress('rendering', '使用浏览器兼容模式');
-    console.log('⚠ SSR 数据不可用（可能需要滚动加载），回落 DOM 提取…');
+    onProgress('rendering', 'Using browser compatibility mode');
+    console.log('⚠ SSR data is unavailable and may require scrolling; falling back to DOM extraction…');
   }
 
   // —— 路线 2（Phase B）: 打开页面 + 滚动 + DOM 提取 ——
   const page = await newBgPage(browser);
   try {
-    onProgress('rendering', '渲染文档页面');
+    onProgress('rendering', 'Rendering document page');
     await openDoc(page, url, timeoutMs);
     await scrollDoc(page);
     const title = await docTitle(page);
@@ -638,7 +660,7 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
     let commentError = null;
     if (mode === 'md' && objToken) {
       try {
-        onProgress('comments', '读取评论');
+        onProgress('comments', 'Reading comments');
         threads = await fetchCommentThreads(browser, objToken, canonUrl);
         if (threads.length) {
           await page.evaluate((ths) => {
@@ -673,29 +695,29 @@ async function grabExtract(browser, url, outDir, timeoutMs, mode, options = {}) 
               el.appendChild(marker);
             });
           }, threads);
-          console.log(`→ 注入评论锚点 ${threads.length} 条`);
+          console.log(`→ Inserted ${threads.length} comment anchor(s)`);
         }
       } catch (e) {
         commentStatus = 'failed';
         commentError = e.message;
-        console.warn(`⚠ 评论获取失败: ${e.message.slice(0, 80)}`);
+        console.warn(`⚠ Could not retrieve comments: ${e.message.slice(0, 80)}`);
       }
     }
 
-    onProgress('body', '提取正文');
-    console.log(`→ 提取 DOM（${mode}）…`);
+    onProgress('body', 'Extracting document body');
+    console.log(`→ Extracting DOM (${mode})…`);
     const data = await page.evaluate(`(${IN_PAGE_EXTRACT})(${JSON.stringify({ mode })})`);
 
-    if (mode === 'md') console.log(`  顶层块 ${data.blockCount}，图片 ${data.images.length}，未知容器签名 ${data.unknowns.length}`);
-    if (!data.markdown?.trim() && !data.html?.trim()) throw new Error('提取结果为空（DOM 结构可能变化，需迭代 clean.mjs 规则）');
+    if (mode === 'md') console.log(`  ${data.blockCount} top-level blocks, ${data.images.length} images, ${data.unknowns.length} unknown container signatures`);
+    if (!data.markdown?.trim() && !data.html?.trim()) throw new Error('The extracted result is empty. The DOM structure may have changed and clean.mjs may need an update.');
 
     // 图片本地化
     let body = mode === 'md' ? data.markdown : data.html;
     const parts = mode === 'md' ? (data.blocks ?? [{ id: null, md: data.markdown }]) : [{ id: null, md: data.html }];
     let imageCount = 0;
     if (data.images.length) {
-      onProgress('attachments', '处理图片和附件');
-      console.log(`→ 下载图片 ${data.images.length} 张…`);
+      onProgress('attachments', 'Processing images and attachments');
+      console.log(`→ Downloading ${data.images.length} image(s)…`);
       const assetsDir = join(outDir, 'assets');
       const map = await downloadImages(browser, url, data.images, assetsDir, 'assets');
       imageCount = map.size;
@@ -720,11 +742,11 @@ img{max-width:100%}table{border-collapse:collapse;width:100%}td,th{border:1px so
 pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow:auto}blockquote{border-left:4px solid #ddd;margin:0;padding-left:16px;color:#555}</style>
 ${body}`);
     }
-    console.log(`✓ 已导出: ${file}`);
+    console.log(`✓ Exported: ${file}`);
     if (mode === 'md' && data.unknowns.length) {
-      console.log('ℹ 未识别块签名（迭代 clean.mjs 用）:', JSON.stringify(data.unknowns.slice(0, 10)));
+      console.log('ℹ Unknown block signatures for future clean.mjs updates:', JSON.stringify(data.unknowns.slice(0, 10)));
     }
-    onProgress('integrity', '检查导出完整性');
+    onProgress('integrity', 'Checking export integrity');
     const integrity = evaluateIntegrity({
       route: 'dom',
       bodyPresent: Boolean(body.trim()),
@@ -750,7 +772,7 @@ async function screenshotCanvasBlocks(browser, url, whiteboards, sheets, assetsD
   const page = await newBgPage(browser);
   const map = new Map();
   try {
-    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
     await openDoc(page, url, 60000);
     await new Promise((r) => setTimeout(r, 5000));
     const expected = [
@@ -789,8 +811,8 @@ async function screenshotCanvasBlocks(browser, url, whiteboards, sheets, assetsD
         const file = `${item.kind}-${item.idx + 1}.png`;
         await el.screenshot({ path: join(assetsDir, file) });
         map.set(`${item.scheme}://${item.token}/${item.blockId}`, `assets/${file}`);
-        console.log(`  🎨 ${item.kind === 'whiteboard' ? '画板' : '表格'} ${item.idx + 1} 已截图 → ${file}`);
-      } catch (e) { console.warn(`  ⚠ 截图失败: ${e.message.slice(0, 60)}`); }
+        console.log(`  🎨 ${item.kind === 'whiteboard' ? 'Whiteboard' : 'Table'} ${item.idx + 1} captured → ${file}`);
+      } catch (e) { console.warn(`  ⚠ Screenshot failed: ${e.message.slice(0, 60)}`); }
     }
     return map;
   } finally { await page.close().catch(() => {}); }
@@ -831,7 +853,7 @@ async function grabCapture(browser, url, outDir, timeoutMs) {
         bodies.push({ ...m, size: body.length, body });
       } catch { /* 响应体已释放 */ }
     });
-    console.log(`  ↳ 挂载网络监听: ${turl.slice(0, 90)}`);
+    console.log(`  ↳ Attached network listener: ${turl.slice(0, 90)}`);
   }
   for (const t of browser.targets()) await attach(t);
   browser.on('targetcreated', (t) => attach(t));
@@ -873,17 +895,17 @@ async function grabCapture(browser, url, outDir, timeoutMs) {
     }
     writeFileSync(join(dir, 'index.jsonl'), index.map((r) => JSON.stringify(r)).join('\n'));
 
-    console.log(`\n✓ HTTP 响应 ${index.length} 个, WS 帧 ${wsFrames.length} 个 → ${dir}`);
+    console.log(`\n✓ ${index.length} HTTP responses and ${wsFrames.length} WebSocket frames → ${dir}`);
     if (wsFrames.length) {
       // WS 帧里搜内容关键词
       const contentKey = title.replace(/\s+/g, '').slice(0, 6);
       const wsHit = wsFrames.filter((f) => f.body.includes(contentKey));
-      console.log(`★ WS 帧含内容关键词「${contentKey}」: ${wsHit.length}/${wsFrames.length}`);
+      console.log(`★ WebSocket frames containing content keyword “${contentKey}”: ${wsHit.length}/${wsFrames.length}`);
     }
     const hits = index.filter((r) => r.hit);
     console.log(hits.length
-      ? `★ ${hits.length} 个响应包含标题关键词（疑似 block 数据）:\n` + hits.map((h) => `   ${h.file}  ${h.size}B  ${h.url.slice(0, 120)}`).join('\n')
-      : '未找到含标题关键词的响应，需要人工翻 index.jsonl');
+      ? `★ ${hits.length} responses contain the title keyword and may include block data:\n` + hits.map((h) => `   ${h.file}  ${h.size}B  ${h.url.slice(0, 120)}`).join('\n')
+      : 'No response contains the title keyword. Review index.jsonl manually.');
     return { url, ok: true, file: dir };
   } finally {
     await page.close().catch(() => {});
@@ -898,7 +920,7 @@ async function withRetry(fn, times = 2) {
     try { return await fn(); }
     catch (e) {
       lastErr = e;
-      console.warn(`✗ 第 ${i} 次失败: ${e.message}${i < times ? '，重试…' : ''}`);
+      console.warn(`✗ Attempt ${i} failed: ${e.message}${i < times ? '; retrying…' : ''}`);
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
@@ -929,7 +951,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (!args.formatExplicit && previous.run?.format) args.format = previous.run.format;
     const retryUrls = retryableDocuments(previous).map((document) => validateUrl(document.url));
     urls.push(...retryUrls);
-    console.log(`→ 从 ${args.retry} 读取到 ${retryUrls.length} 篇待重试文档`);
+    console.log(`→ Loaded ${retryUrls.length} document(s) to retry from ${args.retry}`);
   }
   if (!['pdf', 'md', 'html', 'capture'].includes(args.format)) throw new Error(`Unknown format: ${args.format}`);
   if (args.browser === 'chrome' && (args.format !== 'md' || args.allowRender)) {
@@ -941,8 +963,8 @@ export async function main(argv = process.argv.slice(2)) {
     console.log('✓ Every document in the previous export is complete. Nothing to retry.');
     return;
   }
-  console.log(`共 ${urls.length} 篇 · 格式 ${args.format} · 输出 ${args.out}`);
-  emitProgress({ total: urls.length, completed: 0, current: 1, stage: 'preparing', message: '准备导出' });
+  console.log(`${urls.length} document(s) · Format: ${args.format} · Output: ${args.out}`);
+  emitProgress({ total: urls.length, completed: 0, current: 1, stage: 'preparing', message: 'Preparing export' });
 
   const browser = args.browser === 'chrome' ? new DailyChrome({ timeoutMs: args.timeoutMs }) : await connect();
   const results = [];
@@ -955,7 +977,7 @@ export async function main(argv = process.argv.slice(2)) {
         stage,
         message,
       });
-      updateProgress('reading', '读取文档信息');
+      updateProgress('reading', 'Reading document information');
       try {
         if (browser instanceof DailyChrome) await browser.prepare(url);
         const fn = args.format === 'pdf' ? grabPdf
@@ -970,7 +992,7 @@ export async function main(argv = process.argv.slice(2)) {
           completed: index + 1,
           current: index + 1,
           stage: 'finished',
-          message: '文档处理完成',
+          message: 'Document complete',
         });
       } catch (e) {
         results.push({ url, ok: false, error: e.message });
@@ -979,7 +1001,7 @@ export async function main(argv = process.argv.slice(2)) {
           completed: index + 1,
           current: index + 1,
           stage: 'failed',
-          message: '文档处理失败',
+          message: 'Document failed',
         });
       }
     }
@@ -1014,9 +1036,9 @@ export async function main(argv = process.argv.slice(2)) {
   writeFileSync(retryFile, ['# Documents that did not reach complete', ...retryUrls].join('\n') + '\n');
   const resultPage = join(args.out, 'index.html');
   writeFileSync(resultPage, renderResultPage(report));
-  console.log(`完整性报告: ${reportFile}`);
-  console.log(`结果页: ${resultPage}`);
-  if (retryUrls.length) console.log(`重试清单: ${retryFile}`);
+  console.log(`Integrity report: ${reportFile}`);
+  console.log(`Results page: ${resultPage}`);
+  if (retryUrls.length) console.log(`Retry list: ${retryFile}`);
 
   const ok = results.filter((r) => r.ok);
   const fail = results.filter((r) => !r.ok);
@@ -1024,11 +1046,11 @@ export async function main(argv = process.argv.slice(2)) {
     acc[item.integrity.verdict] = (acc[item.integrity.verdict] || 0) + 1;
     return acc;
   }, {});
-  console.log(`\n完成: ${ok.length} 成功, ${fail.length} 失败`);
-  console.log(`完整性: ${verdicts.complete || 0} complete, ${verdicts.degraded || 0} degraded, ${verdicts.incomplete || 0} incomplete`);
+  console.log(`\nFinished: ${ok.length} succeeded, ${fail.length} failed`);
+  console.log(`Integrity: ${verdicts.complete || 0} complete, ${verdicts.degraded || 0} degraded, ${verdicts.incomplete || 0} incomplete`);
   if (fail.length) {
     writeFileSync(join(args.out, '_failed.txt'), fail.map((r) => `${r.url}\t${r.error}`).join('\n'));
-    console.log(`失败清单: ${join(args.out, '_failed.txt')}`);
+    console.log(`Failure list: ${join(args.out, '_failed.txt')}`);
     process.exitCode = 1;
   } else if ((verdicts.degraded || 0) + (verdicts.incomplete || 0) > 0) {
     process.exitCode = 2;

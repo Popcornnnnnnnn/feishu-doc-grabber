@@ -29,7 +29,7 @@ test('result page summarizes output, links files, and escapes errors', () => {
   const html = renderResultPage(report);
   assert.match(html, /<b>1<\/b><span>Complete<\/span>/);
   assert.match(html, /Complete%20document\.md/);
-  assert.match(html, /需要重试 1 篇/);
+  assert.match(html, /1 Document\(s\) Need a Retry/);
   assert.match(html, /&lt;script&gt;unsafe&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>unsafe<\/script>/);
 });
