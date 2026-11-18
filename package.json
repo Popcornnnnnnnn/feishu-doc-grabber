@@ -5,6 +5,7 @@
   "description": "Local, integrity-aware Feishu and Lark document exporter",
   "bin": {
     "feishu-grab": "./cli.mjs",
+    "feishu-grab-mcp": "./mcp/server.mjs",
     "feishu-chrome": "./tools/ai-chrome.mjs"
   },
   "scripts": {
@@ -23,6 +24,7 @@
     "cli.mjs",
     "grab.mjs",
     "lib/",
+    "mcp/",
     "tools/ai-chrome.mjs",
     "README.md",
     "INTEGRITY.md",

@@ -139,3 +139,71 @@ test('resource snapshots preserve merged Sheet ranges as rowspan and colspan', (
   assert.match(markdown, /<td rowspan="2" colspan="2">MERGE-E10-F11<\/td>/);
   assert.doesNotMatch(markdown, /<td><\/td>/);
 });
+
+test('decodes rich-text and hyperlink cells (typeCode 6)', () => {
+  const range = Buffer.concat([
+    protobufField(1, 0, 0),
+    protobufField(2, 0, 0),
+    protobufField(3, 1, 0),
+    protobufField(4, 1, 0),
+    protobufField(5, 'S1'),
+  ]);
+  const richText = protobufField(1, 0, 0);
+  const dict = Buffer.concat([
+    protobufField(2, 'https://example.com/login'),
+    protobufField(3, richText),
+  ]);
+  const emptyDescriptor = Buffer.alloc(0);
+  const richDescriptor = Buffer.concat([protobufField(1, 6, 0), protobufField(2, 0, 0)]);
+  const cellTable = Buffer.concat([
+    protobufField(1, Buffer.from([1])),
+    protobufField(2, emptyDescriptor),
+    protobufField(2, richDescriptor),
+  ]);
+  const payload = Buffer.concat([
+    protobufField(1, range),
+    protobufField(2, dict),
+    protobufField(6, cellTable),
+  ]);
+  const block = protobufField(1, protobufField(2, protobufField(12, payload)));
+  const decoded = decodeCellBlock(gzipSync(block).toString('base64'));
+  assert.deepEqual(decoded.unknownCellTypes, []);
+  assert.equal(decoded.cells.length, 1);
+  assert.deepEqual(decoded.cells[0], {
+    address: 'A1',
+    row: 0,
+    col: 0,
+    type: 'rich-text',
+    value: 'https://example.com/login',
+  });
+});
+
+test('decodes packed varint occupancy indices >= 128', () => {
+  const varint = (value) => {
+    const out = [];
+    let v = value;
+    while (v >= 0x80) { out.push((v & 0x7f) | 0x80); v >>>= 7; }
+    out.push(v);
+    return Uint8Array.from(out);
+  };
+  const fieldBytes = (num, bytes) => Uint8Array.from([...varint((num << 3) | 2), ...varint(bytes.length), ...bytes]);
+  const fieldInt = (num, value) => Uint8Array.from([...varint((num << 3) | 0), ...varint(value)]);
+  const concat = (...parts) => Uint8Array.from(parts.flatMap((part) => [...part]));
+
+  const descriptors = [Uint8Array.from([])];
+  for (let i = 1; i <= 130; i++) {
+    descriptors.push(concat(fieldInt(1, 3), fieldInt(2, i - 1)));
+  }
+  const strings = Array.from({ length: 130 }, (_, i) => fieldBytes(2, Buffer.from(`val-${i}`, 'utf8')));
+  const range = concat(fieldInt(1, 0), fieldInt(2, 0), fieldInt(3, 1), fieldInt(4, 2), fieldBytes(5, Buffer.from('S1', 'utf8')));
+  const dictionary = concat(...strings);
+  const occupancy = concat(varint(1), varint(130));
+  const cellTable = concat(fieldBytes(1, occupancy), ...descriptors.map((d) => fieldBytes(2, d)));
+  const payload = concat(fieldBytes(1, range), fieldBytes(2, dictionary), fieldBytes(6, cellTable));
+  const blockBuf = fieldBytes(1, fieldBytes(2, fieldBytes(12, payload)));
+
+  const decoded = decodeCellBlock(gzipSync(blockBuf).toString('base64'));
+  assert.equal(decoded.cells.length, 2);
+  assert.equal(decoded.cells[0].value, 'val-0');
+  assert.equal(decoded.cells[1].value, 'val-129');
+});

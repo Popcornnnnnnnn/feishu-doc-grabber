@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add `search`, finding documents and wiki knowledge bases through the signed-in session; chat messages are never searched.
+- Add `feishu-grab-mcp`, a stdio MCP server exposing `feishu_search` and `feishu_export` to any agent harness.
+- Run searches through BrowserOS neo when it is running, so the everyday Chrome is never touched; Chrome is a reuse-only fallback.
+- Remember the tenant in `~/.feishu-grab.json` so later searches need no `--site`.
+- Allow the read-only `/space/api/search/search_wiki/` request from document and workspace pages, and nothing broader.
+- Accept `/drive/home/`, `/wiki/home/`, and `/next/messenger/` as workspace pages for search.
+
 ## 1.3.2
 
 - Use explicit tab characters in Chrome inventory so the browser dictionary cannot mask the delimiter.

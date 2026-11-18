@@ -11,6 +11,10 @@ feishu-grab \- export Feishu and Lark documents using daily Chrome
 .B feishu-grab doctor
 .RI [ --json ] " [--timeout seconds]"
 .br
+.B feishu-grab search
+.I query
+.RI [ --site " url ] [ --limit " n ] [ --offset " n ] [ --json ]"
+.br
 .B feishu-grab report
 .I export-report.json
 .RI [ --json ]
@@ -68,6 +72,16 @@ Show usage or command help.
 .TP
 .BR -V ", " -v ", " --version
 Show the installed version.
+.SH SEARCH
+.B feishu-grab search
+.I query
+queries the signed-in account's documents and wiki knowledge bases. It runs the same
+read-only request as the web client from a Feishu tab, so results match that account's
+permissions. Chat messages are never searched or returned. A running BrowserOS neo serves the
+request, so the everyday Chrome is untouched; otherwise an open Feishu tab in Chrome is reused
+and search never opens a page. The first run records the tenant in ~/.feishu-grab.json,
+so later searches need no site. --site selects another workspace page,
+--limit accepts 1-100 results, --offset skips earlier results, and --json prints the full result.
 .SH OUTPUT
 Each run writes document files, downloaded assets, export-report.json,
 index.html, and retry-urls.txt. Integrity verdicts are complete, degraded

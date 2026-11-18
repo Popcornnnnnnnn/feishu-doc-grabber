@@ -71,6 +71,49 @@ Use `--help` on any command for its options. Direct URL usage and the `--current
 `report --json` prints the original report and returns a status based on its results.
 See [release maintenance](docs/releasing.md) and [version history](CHANGELOG.md).
 
+## Search
+
+Find documents and wiki knowledge-base pages with the same signed-in session:
+
+```bash
+feishu-grab search '会议纪要' --limit 10
+feishu-grab search '季度规划' --json
+```
+
+This is the document/wiki index, not Feishu's all-in-one search: chat messages are never
+searched or returned. Results come from your account, so they match exactly what you can
+open, and every link can be passed straight to `feishu-grab export`.
+
+Search prefers BrowserOS neo when it is running: the request runs in a Feishu tab there, so
+your everyday Chrome is never touched. Without BrowserOS it falls back to reusing an open
+Feishu tab in Chrome, and it never opens a page. The first run records your tenant in
+`~/.feishu-grab.json`, so later searches need no `--site`. `--offset` pages through results;
+`--json` returns `{ total, hasMore, items[] }` for agents.
+
+## MCP server
+
+`feishu-grab-mcp` speaks the Model Context Protocol over stdio, so any MCP client can search
+without shelling out:
+
+```bash
+feishu-grab-mcp        # after npm link or brew install
+node /path/to/feishu-doc-grabber/mcp/server.mjs
+```
+
+It exposes two tools:
+
+- `feishu_search` — `{ query, limit?, offset?, site?, json? }`, documents and wiki knowledge bases only.
+- `feishu_export` — `{ urls[], out?, timeout? }`, Markdown export with an integrity report.
+
+Client configuration uses the usual shape:
+
+```json
+{ "mcpServers": { "feishu-grab": { "command": "feishu-grab-mcp" } } }
+```
+
+`node cli.mjs help search` documents the same behavior for CLI use; the MCP server and the
+CLI share the transport, allowlist, and tenant memory.
+
 ## Existing isolated-browser option
 
 For the original Google Chrome for Testing workflow, install that browser at `/Applications/Google Chrome for Testing.app`, then sign in once:
