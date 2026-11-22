@@ -1,12 +1,24 @@
-.TH FEISHU-GRAB 1 "October 9, 2026" "Feishu Grabber 1.3.2"
+.TH FEISHU-GRAB 1 "November 22, 2026" "Feishu Grabber 1.4.0"
 .SH NAME
 feishu-grab \- export Feishu and Lark documents using daily Chrome
 .SH SYNOPSIS
 .B feishu-grab
-.RI [ export ] " url ... " [ options ]
+.RI [ options ]
+.br
+.B feishu-grab
+.RI [ export ] " url-or-share-text ... " [ options ]
+.br
+.B feishu-grab batch
+.RI [ url ... ] " [ options ]"
 .br
 .B feishu-grab current
 .RI [ options ]
+.br
+.B feishu-grab retry
+.RI [ export-report.json ] " [ options ]"
+.br
+.B feishu-grab config
+.RI [ --folder " [dir] | " --out " dir | " --reset ] " [ --json ]"
 .br
 .B feishu-grab doctor
 .RI [ --json ] " [--timeout seconds]"
@@ -31,20 +43,35 @@ Exports HTTPS Feishu/Lark docx, document wiki, and docs links to local Markdown
 with assets and integrity reports. Daily Chrome is the default browser mode
 and uses macOS AppleScript. Authentication remains in Chrome.
 .PP
+When run without arguments in an interactive terminal,
+.B feishu-grab
+prompts to paste a link or Feishu share text (pressing Enter exports the active Chrome tab).
+When standard input is piped, links are read from stdin; an empty non-interactive
+invocation prints usage help.
+.PP
 Enable Chrome's View > Developer > Allow JavaScript from Apple Events setting.
 If prompted, allow your terminal to control Google Chrome in macOS Automation
 privacy settings. The program does not enable these permissions automatically.
 Keep the intended signed-in Chrome profile's window open during export.
 .SH OPTIONS
 .TP
+.B --folder [dir]
+Output directory. Saves to DIR, or the current working directory if omitted.
+When followed by a URL, --folder uses the current working directory.
+.TP
 .BR -o ", " --out " directory"
-Output directory. Defaults to ~/Downloads.
+Output directory. Defaults to the directory set via
+.BR config ,
+or ~/Downloads. Cannot be combined with --folder.
 .TP
 .B --list file
-Read UTF-8 URLs, one per line. Ignore blank lines and lines starting with #.
+Read UTF-8 URLs or share text, one per line. Ignore blank lines and lines starting with #.
 .TP
 .B --retry report
 Retry documents that did not reach complete in a previous export report.
+The
+.B retry
+command also accepts an optional report path and otherwise retries the latest report.
 .TP
 .B --current
 Include the active document in daily Chrome.
@@ -72,6 +99,14 @@ Show usage or command help.
 .TP
 .BR -V ", " -v ", " --version
 Show the installed version.
+.SH BATCH AND CONFIG
+.B feishu-grab batch
+exports multiple documents from positional URLs, a --list file, piped stdin,
+or interactive multi-line paste (terminated by a blank line).
+.PP
+.B feishu-grab config
+views or updates the default output folder in ~/.feishu-grab.json without
+overwriting saved search workspace state or the latest report path.
 .SH SEARCH
 .B feishu-grab search
 .I query
@@ -106,12 +141,14 @@ At least one document is degraded or incomplete, without an operational failure.
 Invalid arguments or an invalid report schema.
 .SH EXAMPLES
 .nf
+feishu-grab
+feishu-grab 'https://example.feishu.cn/wiki/TOKEN' --folder
+feishu-grab batch --folder ./exports < urls.txt
+feishu-grab current --folder
+feishu-grab retry
+feishu-grab config --folder
 feishu-grab doctor
-feishu-grab 'https://example.feishu.cn/wiki/TOKEN' --out ./exports
-feishu-grab current --out ./exports
-feishu-grab export --list urls.txt --out ./exports
 feishu-grab report ./exports/export-report.json --json
-feishu-grab help export
 .fi
 .SH LIMITATIONS
 Daily session reuse requires macOS and Google Chrome. CORS restrictions,

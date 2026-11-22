@@ -126,11 +126,11 @@ feishu-grab <url> --render-fallback                       # 显式允许 DOM/截
 
 首次使用：执行 `feishu-chrome login`，在显式打开的窗口里登录一次。
 
-隔离测试租户使用独立 profile 和端口，不会读取或修改日常/公司登录态：
+隔离测试租户使用独立 profile 和端口，不会读取或修改日常登录态：
 
 ```bash
-AI_CHROME_PROFILE=~/.feishu-export-test-profile AI_CHROME_PORT=9223 node tools/ai-chrome.mjs status
-AI_CHROME_PROFILE=~/.feishu-export-test-profile AI_CHROME_PORT=9223 node grab.mjs <test-url> --format md
+AI_CHROME_PROFILE=$HOME/.feishu-export-test-profile AI_CHROME_PORT=9223 node tools/ai-chrome.mjs status
+AI_CHROME_PROFILE=$HOME/.feishu-export-test-profile AI_CHROME_PORT=9223 node grab.mjs <test-url> --format md
 ```
 
 ## 目录
@@ -149,4 +149,4 @@ feishu-doc-grabber/
 ## 备忘
 
 - 若拿到管理员批准的自建应用：切官方 export_tasks 路线（docx/pdf 官方转换，质量最高），本工具的滚动/清洗逻辑作废
-- 遵守公司规定：仅备份自己有权查看的内容；DLP 管控环境自行评估
+- 遵守访问权限与合规要求：仅备份自己有权查看的内容

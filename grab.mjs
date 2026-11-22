@@ -18,6 +18,8 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { DailyChrome, documentURL } from './lib/daily-chrome.mjs';
 import { parseExportArgs, helpText, UsageError, VERSION } from './lib/cli-options.mjs';
+import { extractDocumentURLsFromLines } from './lib/links.mjs';
+import { saveLastReport } from './lib/workspace-state.mjs';
 import { autoScroll } from './lib/scroll.mjs';
 import { IN_PAGE_EXTRACT } from './lib/clean.mjs';
 import {
@@ -943,8 +945,14 @@ export async function main(argv = process.argv.slice(2)) {
   }
   let urls = args.urls.map(validateUrl);
   if (args.list) {
-    const lines = readFileSync(args.list, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
-    urls.push(...lines.map(validateUrl));
+    let listUrls;
+    try {
+      listUrls = extractDocumentURLsFromLines(readFileSync(args.list, 'utf8'));
+    } catch (e) {
+      if (e instanceof UsageError) throw e;
+      throw new UsageError(e.message);
+    }
+    urls.push(...listUrls);
   }
   if (args.retry) {
     const previous = JSON.parse(readFileSync(args.retry, 'utf8'));
@@ -1031,6 +1039,7 @@ export async function main(argv = process.argv.slice(2)) {
     documents,
   };
   writeFileSync(reportFile, JSON.stringify(report, null, 2) + '\n');
+  saveLastReport(reportFile);
   const retryFile = join(args.out, 'retry-urls.txt');
   const retryUrls = retryableDocuments(report).map((document) => document.url);
   writeFileSync(retryFile, ['# Documents that did not reach complete', ...retryUrls].join('\n') + '\n');

@@ -5,9 +5,13 @@ import { join } from 'node:path';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';
 import { main } from '../grab.mjs';
+import { savedLastReport } from '../lib/workspace-state.mjs';
 
 test('isolated export traverses the asynchronous browser target and writes a complete report', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'feishu-export-integration-'));
+  const stateFile = join(dir, 'state.json');
+  const previousState = process.env.FEISHU_GRAB_STATE;
+  process.env.FEISHU_GRAB_STATE = stateFile;
   const originalFetch = globalThis.fetch;
   const originalConnect = puppeteer.connect;
   const originalExitCode = process.exitCode;
@@ -49,10 +53,13 @@ test('isolated export traverses the asynchronous browser target and writes a com
     assert.ok(existsSync(join(dir, 'index.html')));
     const retryURLs = readFileSync(join(dir, 'retry-urls.txt'), 'utf8').split('\n').filter((line) => line.trim() && !line.startsWith('#'));
     assert.deepEqual(retryURLs, []);
+    assert.equal(savedLastReport(stateFile), join(dir, 'export-report.json'));
   } finally {
     globalThis.fetch = originalFetch;
     puppeteer.connect = originalConnect;
     process.exitCode = originalExitCode;
+    if (previousState === undefined) delete process.env.FEISHU_GRAB_STATE;
+    else process.env.FEISHU_GRAB_STATE = previousState;
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,13 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
+- Add interactive paste mode when running bare `feishu-grab` in a terminal (no shell quoting needed; press Enter to export the active Chrome tab), plus piped stdin URL reading.
+- Extract Feishu/Lark document URLs directly from pasted share text and wrapped quotes/punctuation.
+- Add `--folder [dir]` shorthand (saves to the current folder when omitted, with URL lookahead so `--folder URL` works cleanly).
+- Add `batch` command for pasting multi-line links/share text, positional URLs, `--list`, or piped stdin.
+- Add `retry` command that remembers and retries the latest `export-report.json` with zero arguments (or an explicit path).
+- Add `config` command to view, set, or reset the persistent default output folder in `~/.feishu-grab.json` without affecting saved search tenant state.
 - Add `search`, finding documents and wiki knowledge bases through the signed-in session; chat messages are never searched.
-- Add `feishu-grab-mcp`, a stdio MCP server exposing `feishu_search` and `feishu_export` to any agent harness.
-- Run searches through BrowserOS neo when it is running, so the everyday Chrome is never touched; Chrome is a reuse-only fallback.
-- Remember the tenant in `~/.feishu-grab.json` so later searches need no `--site`.
-- Allow the read-only `/space/api/search/search_wiki/` request from document and workspace pages, and nothing broader.
-- Accept `/drive/home/`, `/wiki/home/`, and `/next/messenger/` as workspace pages for search.
+- Add `feishu-grab-mcp`, a stdio MCP server exposing `feishu_search`, `feishu_read`, and `feishu_export` to any agent harness.
+- Run searches and background `feishu_read` through BrowserOS neo when available, keeping everyday Chrome untouched.
+- Consolidate Homebrew distribution into `Popcornnnnnnnn/homebrew-tap` (`brew install Popcornnnnnnnn/tap/feishu-grab`) and publish repository publicly.
 
 ## 1.3.2
 

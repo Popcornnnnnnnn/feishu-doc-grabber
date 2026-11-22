@@ -1,7 +1,7 @@
 {
   "name": "feishu-doc-grabber",
-  "version": "1.3.2",
-  "private": true,
+  "version": "1.4.0",
+  "private": false,
   "description": "Local, integrity-aware Feishu and Lark document exporter",
   "bin": {
     "feishu-grab": "./cli.mjs",
@@ -28,6 +28,7 @@
     "tools/ai-chrome.mjs",
     "README.md",
     "INTEGRITY.md",
+    "CHANGELOG.md",
     "docs/feishu-grab.1",
     "LICENSE"
   ],
