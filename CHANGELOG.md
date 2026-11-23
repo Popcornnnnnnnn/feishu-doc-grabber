@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- Add non-blocking daily update check against GitHub Releases (interactive terminal only; set `FEISHU_GRAB_NO_UPDATE_CHECK=1` to disable).
+- Add `feishu-grab upgrade` (with `--check` and `--json`) to check for updates and upgrade via Homebrew.
+
 ## 1.4.0
 
 - Add interactive paste mode when running bare `feishu-grab` in a terminal (no shell quoting needed; press Enter to export the active Chrome tab), plus piped stdin URL reading.

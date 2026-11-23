@@ -16,9 +16,13 @@ macOS only. Homebrew installs Node.js, the manual page, shell completions, `feis
 To update:
 
 ```bash
+feishu-grab upgrade
+# or manually via Homebrew:
 brew update
 brew upgrade feishu-grab
 ```
+
+Interactive terminal runs check GitHub Releases at most once every 24 hours without delaying CLI execution. Set `FEISHU_GRAB_NO_UPDATE_CHECK=1` to disable update notices.
 
 For development from this checkout, use Node.js 22.12 or newer:
 
