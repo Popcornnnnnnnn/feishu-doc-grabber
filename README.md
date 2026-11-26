@@ -1,5 +1,7 @@
 # feishu-doc-grabber
 
+**English** · [简体中文](README.zh-CN.md)
+
 A command-line exporter for Feishu/Lark documents. On macOS, `feishu-grab` reuses the sign-in in your everyday Google Chrome. It runs through Chrome's AppleScript interface and requires no browser extension, copied profile, remote-debugging port, or separate sign-in.
 
 ## Install
